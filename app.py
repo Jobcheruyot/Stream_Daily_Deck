@@ -5,9 +5,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 
-# 1. Allow very large CSV uploads (up to 1GB)
-st.set_option('server.maxUploadSize', 1000)
-
 st.set_page_config(layout="wide", page_title="Superdeck Analytics", initial_sidebar_state="expanded")
 st.title("🦸 Superdeck Analytics Dashboard")
 st.markdown("> Upload your sales CSV - all analytics available as tabs and dropdowns.")
@@ -22,7 +19,7 @@ if uploaded is None:
 @st.cache_data(show_spinner=True)
 def load_and_prepare(uploaded):
     df = pd.read_csv(uploaded, on_bad_lines='skip', low_memory=False)
-    # Standardize all column names (remove whitespace, uppercase)
+    # Standardize all column names (remove whitespace from start/end but keep case)
     df.columns = [c.strip() for c in df.columns]
     # Dates
     for col in ['TRN_DATE', 'ZED_DATE']:
@@ -50,7 +47,7 @@ def load_and_prepare(uploaded):
             missing = [c for c in idcols if c not in df.columns]
             st.error(f"Your data is missing columns required to build CUST_CODE: {missing}. Cannot proceed.")
             st.stop()
-    # Remove duplicates in CUST_CODE (just for consistency)
+    # Remove leading/trailing spaces in CUST_CODE
     df['CUST_CODE'] = df['CUST_CODE'].astype(str).str.strip()
     return df
 
@@ -65,15 +62,12 @@ def get_time_grid():
 
 intervals, col_labels = get_time_grid()
 
-# ============== Tabs for Main Sections ==============
 tab_names = [
     "Sales Channel L1", "Sales Mode (L2)", "Net Sales by Shift", "Night vs Day/Store", "Day vs Night Pie",
     "2nd Channel Share", "Sales Summary", "Cust Traffic Heatmap", "Till Heatmap", "Custs per Till",
     "Dept/Branch Heatmap", "Tax Compliance", "Top Items", "Branch Compare", "Multi-price SKUs", "Refunds"
 ]
 tabs = st.tabs(tab_names)
-
-# (Shorten tab content for brevity; expand with your own analytics as needed.)
 
 # ----- 1. SALES CHANNEL PIE -----
 with tabs[0]:
