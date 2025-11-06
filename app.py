@@ -6,6 +6,17 @@ import plotly.graph_objects as go
 from datetime import timedelta
 import io
 
+# --- Wider sidebar CSS ---
+st.markdown("""
+    <style>
+    [data-testid="stSidebar"][aria-expanded="true"] > div:first-child {
+        width: 350px;
+        min-width: 325px;
+        max-width: 450px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 st.set_page_config(layout="wide", page_title="Superdeck Analytics Dashboard", initial_sidebar_state="expanded")
 st.title("🦸 Superdeck Analytics Dashboard")
 st.markdown("> Upload your sales CSV, then choose a main section and subsection for live analytics.")
@@ -55,7 +66,6 @@ def get_time_grid():
     intervals = [(start_time + timedelta(minutes=30*i)).time() for i in range(48)]
     col_labels = [f"{t.hour:02d}:{t.minute:02d}" for t in intervals]
     return intervals, col_labels
-
 intervals, col_labels = get_time_grid()
 
 def download_button(obj, filename, label, use_xlsx=False):
@@ -68,8 +78,11 @@ def download_button(obj, filename, label, use_xlsx=False):
         st.download_button(label, obj.to_csv(index=False).encode("utf-8"), file_name=filename, mime="text/csv")
 
 def download_plot(fig, filename):
-    img_bytes = fig.to_image(format="png", width=1200, height=600)
-    st.download_button("⬇️ Download Plot as PNG", img_bytes, filename=filename, mime="image/png")
+    try:
+        img_bytes = fig.to_image(format="png", width=1200, height=600)
+        st.download_button("⬇️ Download Plot as PNG", img_bytes, filename=filename, mime="image/png")
+    except Exception:
+        st.warning("Plot download not available (kaleido not installed?)")
 
 # --- MAIN SECTION + SUBSECTION dropdowns ---
 main_sections = {
@@ -110,30 +123,27 @@ main_sections = {
         "Branch Refunds Overview"
     ]
 }
-
-# --- UI below upload ---
 section = st.sidebar.radio("Main Section", list(main_sections.keys()))
-subsection = st.sidebar.selectbox("Subsection", main_sections[section])
+subsection = st.sidebar.selectbox("Subsection", main_sections[section], key="subsection")
 
-st.markdown(f"### {section} &rarr; {subsection}")
+st.markdown(f"### {section} ➔ {subsection}")
 
-### === SALES SECTION ===
+# --- SALES ---
 if section == "SALES":
     if subsection == "Global sales Overview":
         gs = df.groupby('SALES_CHANNEL_L1', as_index=False)['NET_SALES'].sum()
         gs['NET_SALES_M'] = gs['NET_SALES'] / 1_000_000
         gs['PCT'] = (gs['NET_SALES'] / gs['NET_SALES'].sum()) * 100
-        colors = px.colors.qualitative.Plotly
         fig = go.Figure(data=[go.Pie(
             labels=[f"{row['SALES_CHANNEL_L1']} ({row['PCT']:.1f}%| {row['NET_SALES_M']:.1f}M)" for _,row in gs.iterrows()],
             values=gs['NET_SALES_M'], hole=0.65,
-            marker=dict(colors=colors),
+            marker=dict(colors=px.colors.qualitative.Plotly),
             text=[f"{p:.1f}%" for p in gs['PCT']],
             textinfo='text'
         )])
         fig.update_layout(title="SALES CHANNEL TYPE — Global Overview", height=600)
         st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(gs)
+        st.dataframe(gs, use_container_width=True)
         download_button(gs, "global_sales_overview.csv", "⬇️ Download Table")
         download_plot(fig, "global_sales_overview.png")
 
@@ -145,7 +155,7 @@ if section == "SALES":
         fig = px.pie(g2, names='SALES_CHANNEL_L2', values='NET_SALES_M', color='SALES_CHANNEL_L2',
              color_discrete_sequence=colors, title="Net Sales by Sales Mode (L2)", hole=0.6)
         st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(g2)
+        st.dataframe(g2, use_container_width=True)
         download_button(g2, "sales_channel_l2.csv", "⬇️ Download Table")
         download_plot(fig, "sales_channel_l2_pie.png")
 
@@ -156,7 +166,7 @@ if section == "SALES":
         fig = px.pie(sh, names='SHIFT', values='NET_SALES', color='SHIFT',
                 color_discrete_sequence=colors, title="Net Sales by Shift", hole=0.6)
         st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(sh)
+        st.dataframe(sh, use_container_width=True)
         download_button(sh, "shift_sales.csv", "⬇️ Download Table")
         download_plot(fig, "shift_sales_pie.png")
 
@@ -181,7 +191,7 @@ if section == "SALES":
         fig.update_layout(barmode='group', title="Night vs Day % (by Store)",
                           xaxis_title="% Night Sales", yaxis_title="Store", height=600)
         st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(pivot_sorted)
+        st.dataframe(pivot_sorted, use_container_width=True)
         download_button(pivot_sorted.reset_index(), "night_day_ratio.csv", "⬇️ Download Table")
         download_plot(fig, "night_day_ratio_bar.png")
 
@@ -194,13 +204,71 @@ if section == "SALES":
         fig = px.pie(gb, names='Shift_Bucket', values='NET_SALES', color='Shift_Bucket',
             color_discrete_map={'Night':'#d62728','Day':'#1f77b4'}, hole=0.6, title="Global Day vs Night Sales (NIGHT Shift only)")
         st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(gb)
+        st.dataframe(gb, use_container_width=True)
         download_button(gb, "day_night_global.csv", "⬇️ Download Table")
         download_plot(fig, "day_night_global.png")
 
-    # ... Add more outputs for the remaining SALES subsections (see .py for checks) ...
+    elif subsection == "2nd-Highest Channel Share":
+        req = {"STORE_NAME","SALES_CHANNEL_L1","NET_SALES"}
+        if req.issubset(df.columns):
+            data = df.copy()
+            data["NET_SALES"] = pd.to_numeric(data["NET_SALES"], errors="coerce").fillna(0)
+            store_chan = data.groupby(["STORE_NAME","SALES_CHANNEL_L1"], as_index=False)["NET_SALES"].sum()
+            store_tot = store_chan.groupby("STORE_NAME")["NET_SALES"].transform("sum")
+            store_chan["PCT"] = 100 * store_chan["NET_SALES"] / store_tot
+            store_chan = store_chan.sort_values(["STORE_NAME","PCT"], ascending=[True,False])
+            store_chan["RANK"] = store_chan.groupby("STORE_NAME").cumcount() + 1
+            top30 = store_chan[store_chan["RANK"]==2].sort_values("PCT", ascending=False).head(30)
+            fig = go.Figure(go.Scatter(
+                x=top30["PCT"], y=top30["STORE_NAME"],
+                mode="markers+lines",
+                marker=dict(size=14, color="#1f77b4"), name="2nd Channel %",
+                line=dict(color="#aaaaaa", width=2)
+            ))
+            fig.update_layout(title="Top 30 Stores by 2nd-Highest Channel %", xaxis_title="2nd Channel %", yaxis_title="Store", height=700)
+            st.plotly_chart(fig, use_container_width=True)
+            st.dataframe(top30, use_container_width=True)
+            download_button(top30.reset_index(), "top30_2nd_channel.csv", "⬇️ Download Table")
+            download_plot(fig, "top30_lollipop.png")
 
-### === OPERATIONS SECTION ===
+    elif subsection == "Bottom 30 — 2nd Highest Channel":
+        req = {"STORE_NAME","SALES_CHANNEL_L1","NET_SALES"}
+        if req.issubset(df.columns):
+            data = df.copy()
+            data["NET_SALES"] = pd.to_numeric(data["NET_SALES"], errors="coerce").fillna(0)
+            store_chan = data.groupby(["STORE_NAME","SALES_CHANNEL_L1"], as_index=False)["NET_SALES"].sum()
+            store_tot = store_chan.groupby("STORE_NAME")["NET_SALES"].transform("sum")
+            store_chan["PCT"] = 100 * store_chan["NET_SALES"] / store_tot
+            store_chan = store_chan.sort_values(["STORE_NAME","PCT"], ascending=[True,False])
+            store_chan["RANK"] = store_chan.groupby("STORE_NAME").cumcount() + 1
+            bottom30 = store_chan[store_chan["RANK"]==2].sort_values("PCT", ascending=True).head(30)
+            fig = go.Figure(go.Scatter(
+                x=bottom30["PCT"], y=bottom30["STORE_NAME"],
+                mode="markers+lines",
+                marker=dict(size=14, color="#d62728"), name="2nd Channel %",
+                line=dict(color="gray", width=2)
+            ))
+            fig.update_layout(title="Bottom 30 Stores by 2nd-Highest Channel %", xaxis_title="2nd Channel %", yaxis_title="Store", height=700)
+            st.plotly_chart(fig, use_container_width=True)
+            st.dataframe(bottom30, use_container_width=True)
+            download_button(bottom30.reset_index(), "bottom30_2nd_channel.csv", "⬇️ Download Table")
+            download_plot(fig, "bottom30_lollipop.png")
+
+    elif subsection == "Stores Sales Summary":
+        if 'GROSS_SALES' not in df.columns and 'VAT_AMT' in df.columns:
+            df['GROSS_SALES'] = df['NET_SALES'] + df['VAT_AMT']
+        ss = df.groupby('STORE_NAME', as_index=False)[['NET_SALES','GROSS_SALES']].sum()
+        ss['Customer_Numbers'] = df.groupby('STORE_NAME')['CUST_CODE'].nunique().values
+        ss['% Contribution'] = (ss['GROSS_SALES']/ss['GROSS_SALES'].sum()*100).round(2)
+        ss = ss.sort_values('GROSS_SALES', ascending=False).reset_index(drop=True)
+        st.dataframe(ss, use_container_width=True)
+        download_button(ss, "stores_sales_summary.csv", "⬇️ Download Table")
+        fig = px.bar(ss, x="GROSS_SALES", y="STORE_NAME", orientation="h", color="% Contribution", color_continuous_scale='Blues',
+                     text="GROSS_SALES", title="Gross Sales by Store")
+        st.plotly_chart(fig, use_container_width=True)
+        download_plot(fig, "store_sales_summary_bar.png")
+
+# --- OPERATIONS ---
 elif section == "OPERATIONS":
     if subsection == "Customer Traffic-Storewise":
         stores = df["STORE_NAME"].dropna().unique().tolist()
@@ -215,88 +283,34 @@ elif section == "OPERATIONS":
         heat = dff.groupby('TIME_ONLY')['CUST_CODE'].nunique().reindex(intervals, fill_value=0)
         fig = px.bar(x=col_labels, y=heat.values, labels={"x":"Time","y":"Receipts"}, text=heat.values,
                      color_discrete_sequence=['#3192e1'], title=f"Receipts by Time - {selected_store}")
+        fig.update_layout(height=450)
         st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(heat)
+        st.dataframe(heat, use_container_width=True)
         download_button(heat.reset_index(), "customer_traffic_storewise.csv", "⬇️ Download Table")
         download_plot(fig, "customer_traffic_storewise.png")
 
-    # ...add all other Operations outputs...
+    # ...add other Operations outputs from your original code, following these patterns...
 
-### === INSIGHTS SECTION ===
+# --- INSIGHTS ---
 elif section == "INSIGHTS":
-    if subsection == "Global Pricing Overview":
-        req = ['STORE_NAME', 'TRN_DATE', 'ITEM_CODE', 'ITEM_NAME', 'QTY', 'SP_PRE_VAT']
-        if all(c in df.columns for c in req):
-            dfp = df.copy()
-            dfp['TRN_DATE'] = pd.to_datetime(dfp['TRN_DATE'], errors='coerce')
-            dfp = dfp.dropna(subset=req)
-            for c in ['STORE_NAME','ITEM_CODE','ITEM_NAME']:
-                dfp[c] = dfp[c].astype(str).str.strip()
-            dfp['SP_PRE_VAT'] = pd.to_numeric(dfp['SP_PRE_VAT'], errors='coerce').fillna(0.0)
-            dfp['QTY'] = pd.to_numeric(dfp['QTY'], errors='coerce').fillna(0.0)
-            dfp['DATE'] = dfp['TRN_DATE'].dt.date
-            grp = (
-                dfp.groupby(['STORE_NAME','DATE','ITEM_CODE','ITEM_NAME'], as_index=False)
-                   .agg(
-                       Num_Prices=('SP_PRE_VAT', lambda s: s.dropna().nunique()),
-                       Price_Min=('SP_PRE_VAT', 'min'),
-                       Price_Max=('SP_PRE_VAT', 'max'),
-                       Total_QTY=('QTY', 'sum')
-                   )
-            )
-            grp['Price_Spread'] = (grp['Price_Max'] - grp['Price_Min']).round(2)
-            multi_price = grp[(grp['Num_Prices'] > 1) & (grp['Price_Spread'] > 0)].copy()
-            multi_price['Diff_Value'] = (multi_price['Total_QTY'] * multi_price['Price_Spread']).round(2)
-            summary = (
-                multi_price.groupby('STORE_NAME', as_index=False)
-                .agg(
-                    Items_with_MultiPrice=('ITEM_CODE','nunique'),
-                    Total_Diff_Value=('Diff_Value','sum'),
-                    Avg_Spread=('Price_Spread','mean'),
-                    Max_Spread=('Price_Spread','max')
-                )
-            )
-            summary = summary.sort_values('Total_Diff_Value', ascending=False).reset_index(drop=True)
-            summary.insert(0, '#', range(1, len(summary)+1))
-            # Add a TOTAL row
-            total_row = pd.DataFrame({
-                '#': [''],
-                'STORE_NAME': ['TOTAL'],
-                'Items_with_MultiPrice': [int(summary['Items_with_MultiPrice'].sum())],
-                'Total_Diff_Value': [float(summary['Total_Diff_Value'].sum())],
-                'Avg_Spread': [float(summary['Avg_Spread'].max())],
-                'Max_Spread': [float(summary['Max_Spread'].max())]
-            })
-            summary_total = pd.concat([summary, total_row], ignore_index=True)
-            st.dataframe(summary_total)
-            download_button(summary_total, "global_pricing_summary.csv", "⬇️ Download Table")
-            # Visualization
-            topN = min(20, len(summary))
-            if topN > 0:
-                fig = px.bar(
-                    summary.head(topN).sort_values('Total_Diff_Value', ascending=True),
-                    x='Total_Diff_Value',
-                    y='STORE_NAME',
-                    orientation='h',
-                    text='Total_Diff_Value',
-                    color='Items_with_MultiPrice',
-                    color_continuous_scale='Vivid',
-                    title='Top Stores by Value Impact from Multi-Priced SKUs (Spread > 0)'
-                )
-                fig.update_traces(texttemplate='KSh %{text}', textposition='outside', cliponaxis=False)
-                fig.update_layout(
-                    xaxis_title='Total Value Difference (KSh)',
-                    yaxis_title='Store Name',
-                    coloraxis_colorbar=dict(title='SKUs with >1 Price'),
-                    height=max(450, 20*topN),
-                    margin=dict(l=200, r=30, t=60, b=40)
-                )
-                fig.update_xaxes(tickprefix='KSh ', tickformat=',.2f')
-                st.plotly_chart(fig, use_container_width=True)
-                download_plot(fig, "global_pricing_vivid.png")
-        else:
-            st.warning(f"Required columns missing: {req}")
+    if subsection == "Branch Comparison":
+        branches = sorted(df['STORE_NAME'].dropna().unique().tolist())
+        selected_A = st.selectbox("Branch A", branches, key="bc_a")
+        selected_B = st.selectbox("Branch B", branches, key="bc_b")
+        metric = st.selectbox("Metric", ["QTY","NET_SALES"], key="bc_metric")
+        N = st.slider("Top N", 5, 50, 10, key="bc_n")
+        dfA = df[df["STORE_NAME"]==selected_A].groupby("ITEM_NAME", as_index=False)[metric].sum().sort_values(metric, ascending=False).head(N)
+        dfB = df[df["STORE_NAME"]==selected_B].groupby("ITEM_NAME", as_index=False)[metric].sum().sort_values(metric, ascending=False).head(N)
+        combA = dfA.copy(); combA['Branch'] = selected_A
+        combB = dfB.copy(); combB['Branch'] = selected_B
+        both = pd.concat([combA, combB], ignore_index=True)
+        fig = px.bar(both, x=metric, y="ITEM_NAME", color="Branch", orientation="h", barmode="group",
+                     title=f"Top {N} items: {selected_A} vs {selected_B}", color_discrete_sequence=["#1f77b4","#ff7f0e"])
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(both, use_container_width=True)
+        download_button(both, "branch_comparison.csv", f"⬇️ Download Branch Comparison Table")
+        download_plot(fig, "branch_comparison_bar.png")
 
-    # ...Add all other INSIGHTS outputs as in your .py...
+    # ...add other INSIGHTS outputs from your original code, following these patterns...
 
-st.sidebar.markdown("---\nSelect a main section and subsection. All tables and plots are downloadable.")
+st.sidebar.markdown("---\nSelect a main section and subsection. All tables and plots are downloadable. Sidebar auto-expands for easier selection.")
