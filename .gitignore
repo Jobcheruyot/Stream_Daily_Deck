@@ -1,23 +1,8 @@
-# Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
-*$py.class
-
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-
-# Virtual environments
-.venv/
-venv/
-env/
-
-# OS / Editor
+*.pyc
+.env
+.env.*
+secrets.toml
+*.log
 .DS_Store
-Thumbs.db
 .vscode/
-.idea/
-
-# Streamlit
-.streamlit/secrets.toml
