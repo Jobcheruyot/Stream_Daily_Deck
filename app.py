@@ -1,3 +1,12 @@
+# Updated Streamlit app with support for larger uploads and chunked CSV parsing.
+# Note: To actually allow uploads up to 1024 MB you must set the Streamlit server config:
+#   - Environment: export STREAMLIT_SERVER_MAX_UPLOAD_SIZE=1024
+#   - OR .streamlit/config.toml: server.maxUploadSize = 1024
+#
+# Also ensure the host has enough RAM to hold/process a ~1GB CSV in memory, or
+# consider converting to Parquet / using Dask for out-of-core processing.
+
+import os
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,6 +14,13 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 import io
+
+# Show current STREAMLIT_SERVER_MAX_UPLOAD_SIZE (MB) if set
+env_max_upload_mb = os.environ.get("STREAMLIT_SERVER_MAX_UPLOAD_SIZE")
+try:
+    env_max_upload_mb_int = int(env_max_upload_mb) if env_max_upload_mb is not None else None
+except Exception:
+    env_max_upload_mb_int = None
 
 # === Wide sidebar fix & better main output width ===
 st.markdown("""
@@ -25,25 +41,91 @@ st.markdown("> Upload your sales CSV, choose a main section and subsection for l
 
 # --- SIDEBAR: Upload block ---
 st.sidebar.header("Upload Data")
-uploaded = st.sidebar.file_uploader("Upload CSV (up to 500MB, check server settings)", type="csv")
+
+uploader_hint = "Upload CSV (up to 1024 MB; set server config to allow 1 GB uploads)"
+if env_max_upload_mb_int:
+    uploader_hint = f"Upload CSV (server allows up to {env_max_upload_mb_int} MB)"
+
+uploaded = st.sidebar.file_uploader(uploader_hint, type="csv")
 if uploaded is None:
     st.info("Please upload a dataset to proceed.")
     st.stop()
 
+# Helper: recommended action to increase limit if needed
+if env_max_upload_mb_int is None or env_max_upload_mb_int < 1024:
+    st.sidebar.warning(
+        "If you need 1 GB uploads set STREAMLIT_SERVER_MAX_UPLOAD_SIZE=1024 (MB) on the server "
+        "or add .streamlit/config.toml with server.maxUploadSize = 1024. "
+        "See sidebar instructions at the bottom for examples."
+    )
+
 @st.cache_data(show_spinner=True)
-def load_and_prepare(uploaded):
-    df = pd.read_csv(uploaded, on_bad_lines='skip', low_memory=False)
-    df.columns = [c.strip() for c in df.columns]
-    # Date columns
-    for col in ['TRN_DATE', 'ZED_DATE']: 
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
+def load_and_prepare(uploaded_file):
+    # Process large CSVs in chunks to make parsing more robust on big files.
+    # This still ends up assembling a full DataFrame in memory; ensure you have enough RAM.
     numeric_cols = ['QTY', 'CP_PRE_VAT', 'SP_PRE_VAT', 'COST_PRE_VAT', 'NET_SALES', 'VAT_AMT']
-    for nc in numeric_cols:
-        if nc in df.columns: df[nc] = pd.to_numeric(df[nc], errors='coerce').fillna(0)
     idcols = ['STORE_CODE', 'TILL', 'SESSION', 'RCT']
-    for col in idcols: 
-        if col in df.columns: df[col] = df[col].astype(str).fillna('').str.strip()
+
+    # Determine uploaded file size in MB if possible
+    size_mb = None
+    try:
+        size_mb = getattr(uploaded_file, "size", None)
+        if size_mb:
+            size_mb = size_mb / (1024 * 1024)
+    except Exception:
+        size_mb = None
+
+    # If large file, use chunked reading
+    CHUNK_THRESHOLD_MB = 200  # when to switch to chunked parsing
+    CHUNK_SIZE = 200_000      # rows per chunk; tune for your data/profile
+
+    def process_chunk(df_chunk):
+        df_chunk.columns = [c.strip() for c in df_chunk.columns]
+        for col in ['TRN_DATE', 'ZED_DATE']:
+            if col in df_chunk.columns:
+                df_chunk[col] = pd.to_datetime(df_chunk[col], errors='coerce')
+        for nc in numeric_cols:
+            if nc in df_chunk.columns:
+                df_chunk[nc] = pd.to_numeric(df_chunk[nc], errors='coerce').fillna(0)
+        for col in idcols:
+            if col in df_chunk.columns:
+                df_chunk[col] = df_chunk[col].astype(str).fillna('').str.strip()
+        if 'CUST_CODE' not in df_chunk.columns:
+            if all(c in df_chunk.columns for c in idcols):
+                df_chunk['CUST_CODE'] = (
+                    df_chunk['STORE_CODE'].str.strip() + '-' +
+                    df_chunk['TILL'].str.strip() + '-' +
+                    df_chunk['SESSION'].str.strip() + '-' +
+                    df_chunk['RCT'].str.strip()
+                )
+            else:
+                # If required id cols are missing, we will raise later at top-level (keeps chunk logic simpler)
+                pass
+        if 'CUST_CODE' in df_chunk.columns:
+            df_chunk['CUST_CODE'] = df_chunk['CUST_CODE'].astype(str).str.strip()
+        return df_chunk
+
+    try:
+        if size_mb is not None and size_mb > CHUNK_THRESHOLD_MB:
+            # Use chunked reader
+            chunks = []
+            reader = pd.read_csv(uploaded_file, on_bad_lines='skip', low_memory=False, chunksize=CHUNK_SIZE)
+            for chunk in reader:
+                processed = process_chunk(chunk)
+                chunks.append(processed)
+            df = pd.concat(chunks, ignore_index=True)
+        else:
+            # Normal read
+            df = pd.read_csv(uploaded_file, on_bad_lines='skip', low_memory=False)
+            df = process_chunk(df)
+    except pd.errors.EmptyDataError:
+        st.error("Uploaded CSV appears to be empty or malformed.")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error reading CSV: {e}")
+        st.stop()
+
+    # Validate presence of CUST_CODE or idcols, else show helpful error
     if 'CUST_CODE' not in df.columns:
         if all(c in df.columns for c in idcols):
             df['CUST_CODE'] = (
@@ -56,7 +138,7 @@ def load_and_prepare(uploaded):
             missing = [c for c in idcols if c not in df.columns]
             st.error(f"Missing columns for CUST_CODE: {missing}")
             st.stop()
-    df['CUST_CODE'] = df['CUST_CODE'].astype(str).str.strip()
+
     return df
 
 df = load_and_prepare(uploaded)
@@ -77,6 +159,9 @@ def download_button(obj, filename, label, use_xlsx=False):
         towrite.seek(0)
         st.download_button(label, towrite, file_name=filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
+        # If obj is a Series or index-like, convert to DataFrame for CSV
+        if isinstance(obj, (pd.Series, pd.Index)):
+            obj = obj.reset_index()
         st.download_button(label, obj.to_csv(index=False).encode("utf-8"), file_name=filename, mime="text/csv")
 
 def download_plot(fig, filename):
@@ -116,7 +201,7 @@ main_sections = {
         "Branch Comparison",
         "Product Perfomance",
         "Global Loyalty Overview",
-        "Branch Loyalty Overview",
+        "Branch Branch Overview",
         "Customer Loyalty Overview",
         "Global Pricing Overview",
         "Branch Branch Overview",
@@ -232,4 +317,10 @@ elif section == "INSIGHTS":
 
     # ...continue all other INSIGHTS outputs...
 
-st.sidebar.markdown("---\nSidebar auto-expands for easy selection. All tables and plots can be downloaded. If image download fails, check `kaleido` install.")
+st.sidebar.markdown(
+    "---\nSidebar auto-expands for easy selection. All tables and plots can be downloaded. "
+    "If image download fails, check `kaleido` install.\n\n"
+    "To allow 1 GB uploads, you must set the Streamlit server config: \n\n"
+    "Linux/macOS (env): export STREAMLIT_SERVER_MAX_UPLOAD_SIZE=1024\n\n"
+    "Or add repository file: .streamlit/config.toml with content:\nserver.maxUploadSize = 1024\n"
+)
