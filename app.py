@@ -1,378 +1,253 @@
-#!/usr/bin/env python3
-"""
-Superdeck — Streamlit Analytics (clean, safe, production-friendly)
-
-Goals for this version:
-- Avoid any top-level runtime errors so Streamlit Cloud won't show the "Oh no" crash page.
-- Keep the UI focused: 3 main categories (SALES / OPERATIONS / INSIGHTS) and subsections.
-- Only show uploader and a minimal, relevant sidebar. Remove debug and noisy alternative upload prompts.
-- Provide an unobtrusive "Advanced" collapsible for S3 direct-upload instructions (optional).
-- Defensive data loading: parse the CSV only after upload, catch exceptions and present friendly error messages (no crashes).
-- Provide clear guidance in-app when columns required for a view are missing.
-
-Replace your current app.py with this file and restart the app.
-"""
-from typing import List, Dict, Any
-import io
-from datetime import timedelta
-import textwrap
-import traceback
-
+import os
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import timedelta
+import io
 
-# ----------------------------
-# Page config & light styling
-# ----------------------------
-st.set_page_config(page_title="Superdeck Analytics", layout="wide")
-st.markdown(
-    """
+# === Wide sidebar fix & better main output width ===
+st.markdown("""
     <style>
-      [data-testid="stSidebar"][aria-expanded="true"] > div:first-child { width: 340px; }
-      .muted { color: #6c757d; font-size: 13px; }
-      .card { padding:12px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.04); background: linear-gradient(180deg,#fff,#f8fbff); }
+    [data-testid="stSidebar"][aria-expanded="true"] > div:first-child {
+        width: 370px;
+        min-width: 340px;
+        max-width: 480px;
+        padding-right: 18px;
+    }
+    .block-container {padding-top:1rem;}
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+    """, unsafe_allow_html=True)
+st.set_page_config(layout="wide", page_title="Superdeck Analytics Dashboard", initial_sidebar_state="expanded")
 
-# ----------------------------
-# Sidebar: uploader (minimal)
-# ----------------------------
-st.sidebar.header("Upload CSV")
-st.sidebar.write("Upload a CSV to enable the dashboard. Files larger than your host limit may fail — see Advanced > S3 instructions if needed.")
-uploaded = st.sidebar.file_uploader("Choose CSV file", type="csv", accept_multiple_files=False)
+st.title("🦸 Superdeck Analytics Dashboard")
+st.markdown("> Upload your sales CSV, choose a main section and subsection for live analytics.")
 
-# Advanced (collapsed) only if the user expands it — not prominent
-with st.sidebar.expander("Advanced: Direct S3 upload (optional)", expanded=False):
-    st.write("If your host blocks large uploads, upload directly to S3 and then paste the S3 object key into the app. This is advanced and optional.")
-    st.markdown("- Create an S3 presigned POST on your backend (or in this app with AWS creds) and upload from the browser.")
-    st.markdown("- After upload, use 'Process S3 file' on the main page to download and parse the object server-side.")
+# --- SIDEBAR: Upload block ---
+st.sidebar.header("Upload Data")
 
-# ----------------------------
-# Small helper utilities
-# ----------------------------
-def safe_read_csv_bytes(uploaded_file, chunksize: int = 200_000) -> pd.DataFrame:
-    """Read CSV robustly using chunking for large files. Raises on failure (caught by caller)."""
-    # Convert Streamlit UploadedFile to BytesIO
-    if hasattr(uploaded_file, "getvalue"):
-        b = io.BytesIO(uploaded_file.getvalue())
-    else:
-        uploaded_file.seek(0)
-        b = io.BytesIO(uploaded_file.read())
-    size_mb = len(b.getvalue()) / (1024 * 1024)
-    b.seek(0)
-    if size_mb > 200:
-        parts = []
-        for chunk in pd.read_csv(b, on_bad_lines="skip", low_memory=False, chunksize=chunksize):
-            parts.append(chunk)
-        df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
-    else:
-        df = pd.read_csv(b, on_bad_lines="skip", low_memory=False)
-    return df
-
-def to_numeric_cols(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
-    for c in cols:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
-    return df
-
-def show_missing_columns(required: List[str]):
-    st.error(f"Missing columns required for this view: {', '.join(required)}")
-
-# ----------------------------
-# Safe load & preprocess (only run after upload)
-# ----------------------------
-@st.cache_data(show_spinner=False)
-def preprocess(uploaded_file) -> Dict[str, Any]:
-    """Load CSV and compute frequently used aggregates. Returns a dict of results."""
-    df = safe_read_csv_bytes(uploaded_file)
-    # normalize columns
-    df.columns = [c.strip() for c in df.columns]
-    # parse dates if present
-    for dcol in ("TRN_DATE", "ZED_DATE"):
-        if dcol in df.columns:
-            df[dcol] = pd.to_datetime(df[dcol], errors="coerce")
-    # numeric cleanup
-    numeric_cols = ["QTY", "CP_PRE_VAT", "SP_PRE_VAT", "COST_PRE_VAT", "NET_SALES", "VAT_AMT"]
-    df = to_numeric_cols(df, numeric_cols)
-    # ensure some essential text columns exist so we don't KeyError
-    for t in ["STORE_NAME", "CUST_CODE", "SALES_CHANNEL_L1", "SALES_CHANNEL_L2", "SHIFT"]:
-        if t not in df.columns:
-            df[t] = ""
-    # derived columns
-    if "GROSS_SALES" not in df.columns:
-        df["GROSS_SALES"] = df.get("NET_SALES", 0) + df.get("VAT_AMT", 0)
-    # precompute common aggregates used by SALES visuals
-    results = {"df": df}
-    try:
-        results["global_sales"] = (
-            df.groupby("SALES_CHANNEL_L1", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False)
-        )
-        results["channel2"] = (
-            df.groupby("SALES_CHANNEL_L2", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False)
-        )
-        results["shift_sales"] = df.groupby("SHIFT", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False)
-    except Exception:
-        # if something unexpected, return as-empty and let views show friendly message
-        results["global_sales"] = pd.DataFrame()
-        results["channel2"] = pd.DataFrame()
-        results["shift_sales"] = pd.DataFrame()
-    return results
-
-# ----------------------------
-# Main header: categories
-# ----------------------------
-st.title("Superdeck — Sales & Operations Dashboard")
-st.markdown("Choose a category below. Subsections appear once you select a category.")
-
-# show three big buttons (user-friendly)
-cols = st.columns(3)
-if "main_category" not in st.session_state:
-    st.session_state["main_category"] = "SALES"
-with cols[0]:
-    if st.button("📈 SALES"):
-        st.session_state["main_category"] = "SALES"
-with cols[1]:
-    if st.button("⚙️ OPERATIONS"):
-        st.session_state["main_category"] = "OPERATIONS"
-with cols[2]:
-    if st.button("🔎 INSIGHTS"):
-        st.session_state["main_category"] = "INSIGHTS"
-
-st.markdown("---")
-
-# subsections dictionary (only relevant ones implemented; others show "coming soon")
-SUBSECTIONS = {
-    "SALES": [
-        "Global sales Overview",
-        "Global Net Sales Distribution by Sales Channel",
-        "Global Net Sales Distribution by SHIFT",
-        "Night vs Day Shift Sales Ratio — Stores with Night Shifts",
-        "Global Day vs Night Sales — Only Stores with NIGHT Shift",
-        "2nd-Highest Channel Share",
-        "Bottom 30 — 2nd Highest Channel",
-        "Stores Sales Summary"
-    ],
-    "OPERATIONS": [
-        "Customer Traffic-Storewise",
-        "Active Tills During the day",
-        "Average Customers Served per Till",
-        "Store Customer Traffic Storewise",
-        "Customer Traffic-Departmentwise",
-        "Cashiers Perfomance",
-        "Till Usage",
-        "Tax Compliance"
-    ],
-    "INSIGHTS": [
-        "Customer Baskets Overview",
-        "Global Category Overview-Sales",
-        "Global Category Overview-Baskets",
-        "Supplier Contribution",
-        "Category Overview",
-        "Branch Comparison",
-        "Product Perfomance",
-        "Global Loyalty Overview",
-        "Branch Loyalty Overview",
-        "Customer Loyalty Overview",
-        "Global Pricing Overview",
-        "Branch Brach Overview",
-        "Global Refunds Overview",
-        "Branch Refunds Overview"
-    ]
-}
-
-main = st.session_state["main_category"]
-left, right = st.columns([1, 3])
-with left:
-    st.subheader(f"{main} — Subsections")
-    subsection = st.radio("Choose view", SUBSECTIONS[main], index=0)
-
-# If no file uploaded yet, stop with minimal guidance
+# ONLY present the 1 GB option/hint (no alternative small-file text)
+uploader_hint = "Upload CSV (up to 1024 MB — ensure server.maxUploadSize is set to 1024 MB)"
+uploaded = st.sidebar.file_uploader(uploader_hint, type="csv")
 if uploaded is None:
-    with right:
-        st.info("Please upload your CSV on the left to activate the dashboard.")
-        st.write("If you need help uploading large files, expand 'Advanced' in the left sidebar for S3 guidance.")
+    st.info("Please upload a dataset to proceed.")
     st.stop()
 
-# Load data defensively
-try:
-    with st.spinner("Loading data..."):
-        DATA = preprocess(uploaded)
-        df = DATA["df"]
-except Exception as e:
-    # Show friendly error and stack trace in expander; do NOT let the app crash
-    st.error("Failed to read or parse the uploaded CSV. The app will not crash — please review the error details below.")
-    with st.expander("Error details (click to expand)"):
-        st.text(str(e))
-        st.text(traceback.format_exc())
-    st.stop()
+# We'll always use chunked reading (no "small-file alternative").
+# Use a non-cached loader so we can show progress and live messages while reading.
+def _process_chunk(df_chunk, numeric_cols, idcols):
+    df_chunk.columns = [c.strip() for c in df_chunk.columns]
+    for col in ['TRN_DATE', 'ZED_DATE']:
+        if col in df_chunk.columns:
+            df_chunk[col] = pd.to_datetime(df_chunk[col], errors='coerce')
+    for nc in numeric_cols:
+        if nc in df_chunk.columns:
+            df_chunk[nc] = pd.to_numeric(df_chunk[nc], errors='coerce').fillna(0)
+    for col in idcols:
+        if col in df_chunk.columns:
+            df_chunk[col] = df_chunk[col].astype(str).fillna('').str.strip()
+    if 'CUST_CODE' not in df_chunk.columns:
+        if all(c in df_chunk.columns for c in idcols):
+            df_chunk['CUST_CODE'] = (
+                df_chunk['STORE_CODE'].str.strip() + '-' +
+                df_chunk['TILL'].str.strip() + '-' +
+                df_chunk['SESSION'].str.strip() + '-' +
+                df_chunk['RCT'].str.strip()
+            )
+    if 'CUST_CODE' in df_chunk.columns:
+        df_chunk['CUST_CODE'] = df_chunk['CUST_CODE'].astype(str).str.strip()
+    return df_chunk
 
-# ----------------------------
-# Render each subsection (focused, minimal UI elements)
-# ----------------------------
-with right:
-    st.header(subsection)
+def load_and_prepare_chunked(uploaded_file, chunksize=200_000):
+    """
+    Always reads CSV in chunks, processes each chunk and returns the concatenated dataframe.
+    Provides live progress messages to Streamlit.
+    """
+    numeric_cols = ['QTY', 'CP_PRE_VAT', 'SP_PRE_VAT', 'COST_PRE_VAT', 'NET_SALES', 'VAT_AMT']
+    idcols = ['STORE_CODE', 'TILL', 'SESSION', 'RCT']
 
-    # SALES views
-    if main == "SALES":
-        if subsection == "Global sales Overview":
-            gs = DATA.get("global_sales", pd.DataFrame())
-            if gs.empty or "NET_SALES" not in gs.columns:
-                show_missing_columns(["SALES_CHANNEL_L1", "NET_SALES"])
-            else:
-                gs["NET_SALES_M"] = gs["NET_SALES"] / 1_000_000
-                gs["PCT"] = (gs["NET_SALES"] / gs["NET_SALES"].sum() * 100).round(1)
-                labels = [f"{r['SALES_CHANNEL_L1']} ({r['PCT']:.1f}% | {r['NET_SALES_M']:.1f}M)" for _, r in gs.iterrows()]
-                fig = go.Figure(go.Pie(labels=labels, values=gs["NET_SALES_M"], hole=0.6, text=[f"{p:.1f}%" for p in gs["PCT"]], textinfo="text"))
-                fig.update_layout(title="Sales Channel — Global Overview", height=520)
-                st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(gs[["SALES_CHANNEL_L1", "NET_SALES"]].rename(columns={"SALES_CHANNEL_L1":"Channel","NET_SALES":"Net Sales (KSh)"}), use_container_width=True)
+    # Attempt to estimate file size (MB) if available for user info
+    size_mb = None
+    try:
+        size = getattr(uploaded_file, "size", None)
+        if size:
+            size_mb = size / (1024 * 1024)
+    except Exception:
+        size_mb = None
 
-        elif subsection == "Global Net Sales Distribution by Sales Channel":
-            ch2 = DATA.get("channel2", pd.DataFrame())
-            if ch2.empty:
-                show_missing_columns(["SALES_CHANNEL_L2", "NET_SALES"])
-            else:
-                ch2["NET_SALES_M"] = ch2["NET_SALES"] / 1_000_000
-                fig = px.pie(ch2, names="SALES_CHANNEL_L2", values="NET_SALES_M", hole=0.6, title="Sales by SALES_CHANNEL_L2")
-                st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(ch2[["SALES_CHANNEL_L2","NET_SALES"]].rename(columns={"SALES_CHANNEL_L2":"Mode","NET_SALES":"Net Sales (KSh)"}), use_container_width=True)
+    status = st.empty()
+    progress_placeholder = st.empty()
+    status.info("Starting chunked load...")
 
-        elif subsection == "Global Net Sales Distribution by SHIFT":
-            sh = DATA.get("shift_sales", pd.DataFrame())
-            if sh.empty:
-                show_missing_columns(["SHIFT","NET_SALES"])
-            else:
-                fig = px.pie(sh, names="SHIFT", values="NET_SALES", hole=0.6, title="Net Sales by SHIFT")
-                st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(sh, use_container_width=True)
+    # Ensure file pointer at start
+    try:
+        uploaded_file.seek(0)
+    except Exception:
+        # Some UploadedFile may not support seek - convert to BytesIO
+        uploaded_file = io.BytesIO(uploaded_file.getvalue())
 
-        elif subsection == "Night vs Day Shift Sales Ratio — Stores with Night Shifts":
-            # compute on demand (defensive)
-            if "SHIFT" not in df.columns or "STORE_NAME" not in df.columns or "NET_SALES" not in df.columns:
-                show_missing_columns(["SHIFT","STORE_NAME","NET_SALES"])
-            else:
-                stores_with_night = df[df["SHIFT"].astype(str).str.upper().str.contains("NIGHT", na=False)]["STORE_NAME"].unique()
-                if len(stores_with_night) == 0:
-                    st.info("No stores with NIGHT shift found.")
-                else:
-                    dnd = df[df["STORE_NAME"].isin(stores_with_night)].copy()
-                    dnd["Shift_Bucket"] = np.where(dnd["SHIFT"].astype(str).str.upper().str.contains("NIGHT", na=False),"Night","Day")
-                    r = dnd.groupby(["STORE_NAME","Shift_Bucket"], as_index=False)["NET_SALES"].sum()
-                    tot = r.groupby("STORE_NAME")["NET_SALES"].transform("sum")
-                    r["PCT"] = np.where(tot>0, 100 * r["NET_SALES"] / tot, 0.0)
-                    pivot = r.pivot(index="STORE_NAME", columns="Shift_Bucket", values="PCT").fillna(0)
-                    pivot = pivot.sort_values("Night", ascending=False)
-                    fig = go.Figure()
-                    fig.add_trace(go.Bar(x=pivot["Night"], y=pivot.index, orientation="h", name="Night", marker_color="#d62728"))
-                    fig.add_trace(go.Bar(x=pivot["Day"], y=pivot.index, orientation="h", name="Day", marker_color="#1f77b4"))
-                    fig.update_layout(barmode="group", title="Night vs Day % by Store", height=max(400, 24*len(pivot)))
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.dataframe(pivot.reset_index().rename(columns={"Night":"Night %","Day":"Day %"}), use_container_width=True)
+    chunks = []
+    total_rows = 0
+    chunk_count = 0
 
-        elif subsection == "Global Day vs Night Sales — Only Stores with NIGHT Shift":
-            if "SHIFT" not in df.columns:
-                show_missing_columns(["SHIFT"])
-            else:
-                stores_with_night = df[df["SHIFT"].astype(str).str.upper().str.contains("NIGHT", na=False)]["STORE_NAME"].unique()
-                if len(stores_with_night) == 0:
-                    st.info("No NIGHT shift stores.")
-                else:
-                    dnd = df[df["STORE_NAME"].isin(stores_with_night)].copy()
-                    dnd["Shift_Bucket"] = np.where(dnd["SHIFT"].astype(str).str.upper().str.contains("NIGHT", na=False),"Night","Day")
-                    gb = dnd.groupby("Shift_Bucket", as_index=False)["NET_SALES"].sum()
-                    gb["PCT"] = 100 * gb["NET_SALES"] / gb["NET_SALES"].sum() if gb["NET_SALES"].sum() else 0.0
-                    fig = px.pie(gb, names="Shift_Bucket", values="NET_SALES", hole=0.6, title="Global Day vs Night (Night Stores)")
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.dataframe(gb, use_container_width=True)
+    try:
+        reader = pd.read_csv(uploaded_file, on_bad_lines='skip', low_memory=False, chunksize=chunksize)
+    except Exception as e:
+        status.error(f"Failed to open CSV for chunked reading: {e}")
+        st.stop()
 
-        elif subsection in ("2nd-Highest Channel Share", "Bottom 30 — 2nd Highest Channel"):
-            # safe compute second-largest channel share per store
-            required = ["STORE_NAME","SALES_CHANNEL_L1","NET_SALES"]
-            if any(c not in df.columns for c in required):
-                show_missing_columns(required)
-            else:
-                d = df.copy()
-                d["NET_SALES"] = pd.to_numeric(d["NET_SALES"], errors="coerce").fillna(0)
-                store_chan = d.groupby(["STORE_NAME","SALES_CHANNEL_L1"], as_index=False)["NET_SALES"].sum()
-                store_tot = store_chan.groupby("STORE_NAME")["NET_SALES"].transform("sum")
-                store_chan["PCT"] = np.where(store_tot>0, 100*store_chan["NET_SALES"]/store_tot,0.0)
-                store_chan = store_chan.sort_values(["STORE_NAME","PCT"], ascending=[True,False])
-                store_chan["RANK"] = store_chan.groupby("STORE_NAME").cumcount()+1
-                second = store_chan[store_chan["RANK"]==2]
-                if second.empty:
-                    st.info("No stores with a valid 2nd channel (many stores only have 1 channel).")
-                else:
-                    if subsection.startswith("2nd-Highest"):
-                        top30 = second.sort_values("PCT", ascending=False).head(30)
-                        fig = px.bar(top30, x="PCT", y="STORE_NAME", orientation="h", title="Top 30 by 2nd Channel %")
-                        st.plotly_chart(fig, use_container_width=True)
-                        st.dataframe(top30.rename(columns={"SALES_CHANNEL_L1":"2nd Channel","PCT":"2nd Channel %"}), use_container_width=True)
-                    else:
-                        bottom30 = second.sort_values("PCT", ascending=True).head(30)
-                        fig = px.bar(bottom30, x="PCT", y="STORE_NAME", orientation="h", title="Bottom 30 by 2nd Channel %", color_discrete_sequence=["#d62728"])
-                        st.plotly_chart(fig, use_container_width=True)
-                        st.dataframe(bottom30.rename(columns={"SALES_CHANNEL_L1":"2nd Channel","PCT":"2nd Channel %"}), use_container_width=True)
+    with st.spinner("Reading CSV in chunks..."):
+        for chunk in reader:
+            chunk_count += 1
+            processed = _process_chunk(chunk, numeric_cols, idcols)
+            rows = len(processed)
+            total_rows += rows
+            chunks.append(processed)
 
-        elif subsection == "Stores Sales Summary":
-            if "GROSS_SALES" not in df.columns and "NET_SALES" not in df.columns:
-                show_missing_columns(["NET_SALES"])
-            else:
-                ss = df.groupby("STORE_NAME", as_index=False).agg(NET_SALES=("NET_SALES","sum"), GROSS_SALES=("GROSS_SALES","sum"))
-                ss["Customer_Numbers"] = df.groupby("STORE_NAME")["CUST_CODE"].nunique().reindex(ss["STORE_NAME"]).fillna(0).astype(int).values
-                total_gross = ss["GROSS_SALES"].sum()
-                ss["Pct_Contribution"] = (100 * ss["GROSS_SALES"] / total_gross).round(2) if total_gross!=0 else 0.0
-                st.dataframe(ss.sort_values("GROSS_SALES", ascending=False), use_container_width=True)
-                st.download_button("⬇️ Download Stores Summary", ss.to_csv(index=False).encode("utf-8"), "stores_summary.csv", "text/csv")
+            # update lightweight progress info
+            progress_placeholder.write(f"Chunks processed: {chunk_count} — Rows read so far: {total_rows:,}")
+        if chunk_count == 0:
+            status.error("No data found in uploaded CSV.")
+            st.stop()
 
-    # OPERATIONS and INSIGHTS: for brevity, show clear placeholder and friendly message if not implemented
-    elif main == "OPERATIONS":
-        st.info("Operations views are available; the selected subsection will render here if your CSV contains the required fields.")
-        st.caption("Implemented views in this release: Customer Traffic-Storewise, Active Tills, Average Customers per Till, Cashiers Performance, Tax Compliance.")
-        # Example: show simple traffic heatmap if data present
-        if subsection == "Customer Traffic-Storewise":
-            if "TRN_DATE" not in df.columns or "CUST_CODE" not in df.columns or "STORE_NAME" not in df.columns:
-                show_missing_columns(["TRN_DATE", "CUST_CODE", "STORE_NAME"])
-            else:
-                ft = df.dropna(subset=["TRN_DATE"]).copy()
-                ft["DATE_ONLY"] = ft["TRN_DATE"].dt.date
-                first_touch = ft.groupby(["STORE_NAME","DATE_ONLY","CUST_CODE"], as_index=False)["TRN_DATE"].min()
-                first_touch["TIME_SLOT"] = first_touch["TRN_DATE"].dt.floor("30T").dt.time
-                counts = first_touch.groupby(["STORE_NAME","TIME_SLOT"])["CUST_CODE"].nunique().reset_index(name="Receipts")
-                st.dataframe(counts.head(200), use_container_width=True)
+    status.success(f"Finished reading CSV: {chunk_count} chunks, {total_rows:,} rows.")
+    # Concatenate
+    try:
+        df = pd.concat(chunks, ignore_index=True)
+    except Exception as e:
+        status.error(f"Failed to concatenate chunks: {e}")
+        st.stop()
 
-        elif subsection == "Tax Compliance":
-            if "CU_DEVICE_SERIAL" not in df.columns or "CUST_CODE" not in df.columns:
-                show_missing_columns(["CU_DEVICE_SERIAL", "CUST_CODE"])
-            else:
-                d = df.copy()
-                d["Tax_Compliant"] = np.where(d["CU_DEVICE_SERIAL"].astype(str).str.strip().replace({"nan": "","None":""})!="","Compliant","Non-Compliant")
-                summary = d.groupby("Tax_Compliant", as_index=False)["CUST_CODE"].nunique().rename(columns={"CUST_CODE":"Receipts"})
-                fig = px.pie(summary, names="Tax_Compliant", values="Receipts", hole=0.5, title="Tax Compliance")
-                st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(summary, use_container_width=True)
+    # Validate presence of CUST_CODE or idcols
+    if 'CUST_CODE' not in df.columns:
+        if all(c in df.columns for c in idcols):
+            df['CUST_CODE'] = (
+                df['STORE_CODE'].str.strip() + '-' +
+                df['TILL'].str.strip() + '-' +
+                df['SESSION'].str.strip() + '-' +
+                df['RCT'].str.strip()
+            )
         else:
-            st.write("This Operations subsection is not yet fully implemented in the simplified UI. If you need a specific view implemented now, tell me which one and I'll add it.")
+            missing = [c for c in idcols if c not in df.columns]
+            status.error(f"Missing columns for CUST_CODE: {missing}")
+            st.stop()
 
-    elif main == "INSIGHTS":
-        st.info("Insights views — pick a subsection. Many item-level and loyalty views depend on ITEM_NAME, ITEM_CODE, CUST_CODE and LOYALTY_CUSTOMER_CODE columns.")
-        if subsection == "Customer Baskets Overview":
-            if "ITEM_NAME" not in df.columns or "CUST_CODE" not in df.columns:
-                show_missing_columns(["ITEM_NAME","CUST_CODE"])
-            else:
-                topx = st.slider("Top N", 5, 100, 10)
-                global_top = df.groupby("ITEM_NAME")["CUST_CODE"].nunique().rename("Count_of_Baskets").reset_index().sort_values("Count_of_Baskets", ascending=False).head(topx)
-                fig = px.bar(global_top, x="Count_of_Baskets", y="ITEM_NAME", orientation="h", title=f"Top {topx} items by baskets")
-                st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(global_top, use_container_width=True)
+    # Clean up placeholders
+    progress_placeholder.empty()
+    return df
+
+# Load data (always chunked). Show progress and immediate debug outputs.
+df = load_and_prepare_chunked(uploaded, chunksize=200_000)
+
+# Quick diagnostics & visible outputs so user can see what's happened
+st.subheader("Upload Summary & Diagnostics")
+col_a, col_b = st.columns(2)
+with col_a:
+    st.write("Shape:")
+    st.write({"rows": df.shape[0], "columns": df.shape[1]})
+    st.write("Columns and dtypes:")
+    st.dataframe(pd.DataFrame(df.dtypes, columns=["dtype"]).reset_index().rename(columns={"index": "column"}))
+    st.write("Sample (first 10 rows):")
+    st.dataframe(df.head(10))
+with col_b:
+    st.write("Basic stats for numeric columns:")
+    if any(col for col in df.columns if np.issubdtype(df[col].dtype, np.number)):
+        st.dataframe(df.describe().transpose())
+    else:
+        st.write("No numeric columns detected to describe.")
+    st.write("Unique counts of key IDs:")
+    id_summary = {
+        "unique_STORE_NAME": int(df['STORE_NAME'].nunique()) if 'STORE_NAME' in df.columns else None,
+        "unique_STORE_CODE": int(df['STORE_CODE'].nunique()) if 'STORE_CODE' in df.columns else None,
+        "unique_CUST_CODE": int(df['CUST_CODE'].nunique()) if 'CUST_CODE' in df.columns else None,
+    }
+    st.write(id_summary)
+
+# create time grid for other parts of the app
+def get_time_grid():
+    start_time = pd.Timestamp("00:00:00")
+    intervals = [(start_time + timedelta(minutes=30*i)).time() for i in range(48)]
+    col_labels = [f"{t.hour:02d}:{t.minute:02d}" for t in intervals]
+    return intervals, col_labels
+
+intervals, col_labels = get_time_grid()
+
+def download_button(obj, filename, label, use_xlsx=False):
+    if use_xlsx:
+        towrite = io.BytesIO()
+        obj.to_excel(towrite, encoding="utf-8", index=False, engine='openpyxl')
+        towrite.seek(0)
+        st.download_button(label, towrite, file_name=filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    else:
+        if isinstance(obj, (pd.Series, pd.Index)):
+            obj = obj.reset_index()
+        st.download_button(label, obj.to_csv(index=False).encode("utf-8"), file_name=filename, mime="text/csv")
+
+def download_plot(fig, filename):
+    try:
+        img_bytes = fig.to_image(format="png", width=1200, height=600)
+        st.download_button("⬇️ Download Plot as PNG", img_bytes, filename=filename, mime="image/png")
+    except Exception:
+        st.info("Image download is unavailable (likely missing `kaleido`). Table will still download fine.")
+
+# Main UI sections (kept minimal here) — default to showing a Global Sales Overview output so the user sees app outputs immediately
+st.subheader("Quick Insights (auto-generated)")
+
+if 'SALES_CHANNEL_L1' in df.columns and 'NET_SALES' in df.columns:
+    gs = df.groupby('SALES_CHANNEL_L1', as_index=False)['NET_SALES'].sum()
+    gs['NET_SALES_M'] = gs['NET_SALES'] / 1_000_000
+    gs['PCT'] = (gs['NET_SALES'] / gs['NET_SALES'].sum()) * 100
+    labels = [f"{row['SALES_CHANNEL_L1']} ({row['PCT']:.1f}% | {row['NET_SALES_M']:.1f}M)" for _, row in gs.iterrows()]
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=gs['NET_SALES_M'],
+        hole=0.57,
+        marker=dict(colors=px.colors.qualitative.Plotly),
+        text=[f"{p:.1f}%" for p in gs['PCT']],
+        textinfo='text',
+        sort=False,
+    )])
+    fig.update_layout(title="SALES CHANNEL TYPE — Global Overview", height=400, margin=dict(t=60))
+    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(gs)
+    download_button(gs, "global_sales_overview.csv", "⬇️ Download Table")
+    download_plot(fig, "global_sales_overview.png")
+else:
+    st.warning("Columns SALES_CHANNEL_L1 and/or NET_SALES are missing; cannot produce Global Sales Overview.")
+
+# Also produce a small store-wise receipts by time chart if TRN_DATE and STORE_NAME exist
+if 'TRN_DATE' in df.columns and 'STORE_NAME' in df.columns:
+    try:
+        dff = df.dropna(subset=['TRN_DATE']).copy()
+        dff['TRN_DATE'] = pd.to_datetime(dff['TRN_DATE'], errors='coerce')
+        # pick a store sample to display if many exist
+        stores = dff["STORE_NAME"].dropna().unique().tolist()
+        sample_store = stores[0] if stores else None
+        if sample_store:
+            st.write(f"Receipts by time for a sample store: {sample_store}")
+            dff_sample = dff[dff["STORE_NAME"] == sample_store].copy()
+            for c in ["STORE_CODE","TILL","SESSION","RCT"]:
+                if c in dff_sample.columns:
+                    dff_sample[c] = dff_sample[c].astype(str).fillna('').str.strip()
+            dff_sample['CUST_CODE'] = dff_sample.get('CUST_CODE', dff_sample.get('CUST_CODE', ''))  # safe-get
+            dff_sample['TIME_ONLY'] = dff_sample['TRN_DATE'].dt.floor('30T').dt.time
+            heat = dff_sample.groupby('TIME_ONLY')['CUST_CODE'].nunique().reindex(intervals, fill_value=0)
+            fig2 = px.bar(x=col_labels, y=heat.values, labels={"x":"Time","y":"Receipts"}, text=heat.values,
+                          color_discrete_sequence=['#3192e1'], title=f"Receipts by Time - {sample_store}", height=360)
+            st.plotly_chart(fig2, use_container_width=True)
+            st.dataframe(heat.reset_index().rename(columns={0: 'receipts'}))
+            download_button(heat.reset_index(), "customer_traffic_sample_store.csv", "⬇️ Download Table")
         else:
-            st.write("This Insights subsection either requires additional dataset fields or will be implemented on request. Tell me which specific insight you want next and I'll prioritize it.")
+            st.info("No STORE_NAME values found to display time-based receipts.")
+    except Exception as e:
+        st.error(f"Error while generating time chart: {e}")
+else:
+    st.info("Skipping store time chart: TRN_DATE and/or STORE_NAME columns not present.")
 
-    # end subsection rendering
-
-    st.markdown("---")
-    st.caption("If a view shows 'missing columns', either your CSV lacks those columns or they are named differently. In that case, upload an anonymized sample (5–20 rows) or tell me the column names and I'll map them automatically.")
+# Sidebar note (only the 1GB instruction)
+st.sidebar.markdown(
+    "---\nTo allow 1 GB uploads, set the Streamlit server config:\n\n"
+    "Linux/macOS (env): export STREAMLIT_SERVER_MAX_UPLOAD_SIZE=1024\n\n"
+    "Or add repository file: .streamlit/config.toml with content:\nserver.maxUploadSize = 1024\n"
+)
