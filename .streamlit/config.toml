@@ -1,7 +1,2 @@
-# Increase Streamlit server max upload size to 1024 MB (1 GB)
-# Place at <repo>/.streamlit/config.toml and redeploy/restart the app
+# Minimal config (only upload size) - keep this minimal on Streamlit Cloud
 server.maxUploadSize = 1024
-
-# optional safe defaults for cloud/docker runs
-server.port = 8080
-server.address = "0.0.0.0"
