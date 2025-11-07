@@ -1,271 +1,253 @@
-"""
-Streamlit Superdeck Analytics Dashboard (S3-direct upload + large file safe loader)
-- Supports:
-  - normal Streamlit uploader (subject to server.maxUploadSize)
-  - direct browser → S3 uploads using a presigned POST (bypasses Streamlit limit)
-  - server-side processing of S3 object (download & chunked read)
-- Requires AWS credentials (in st.secrets or environment) for presigned POST generation
-  and for server-side file download.
-"""
 import os
-import io
-import time
-from datetime import timedelta
-from typing import List, Optional
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import boto3
-from botocore.exceptions import ClientError
+import plotly.graph_objects as go
+from datetime import timedelta
+import io
 
-# ---------- Page UI and debug ----------
-st.set_page_config(layout="wide", page_title="Superdeck Analytics Dashboard (Large Uploads)")
-st.title("🦸 Superdeck Analytics Dashboard — Large Upload Ready")
-st.markdown("Use the S3 direct upload option for files larger than your Streamlit server upload limit.")
+# === Wide sidebar fix & better main output width ===
+st.markdown("""
+    <style>
+    [data-testid="stSidebar"][aria-expanded="true"] > div:first-child {
+        width: 370px;
+        min-width: 340px;
+        max-width: 480px;
+        padding-right: 18px;
+    }
+    .block-container {padding-top:1rem;}
+    </style>
+    """, unsafe_allow_html=True)
+st.set_page_config(layout="wide", page_title="Superdeck Analytics Dashboard", initial_sidebar_state="expanded")
 
-# Runtime debug: show effective Streamlit upload settings
-st.sidebar.header("Upload debug info")
-st.sidebar.write("ENV STREAMLIT_SERVER_MAX_UPLOAD_SIZE:", os.environ.get("STREAMLIT_SERVER_MAX_UPLOAD_SIZE"))
-try:
-    st.sidebar.write("streamlit server.maxUploadSize (config):", st.config.get_option("server.maxUploadSize"))
-except Exception as e:
-    st.sidebar.write("Could not read streamlit config:", e)
+st.title("🦸 Superdeck Analytics Dashboard")
+st.markdown("> Upload your sales CSV, choose a main section and subsection for live analytics.")
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("If `streamlit server.maxUploadSize` is < desired upload size, add `.streamlit/config.toml` and restart the app.")
+# --- SIDEBAR: Upload block ---
+st.sidebar.header("Upload Data")
 
-# ---------- S3 helper utilities ----------
-def get_boto3_client():
-    # Prefer st.secrets if present, else environment variables
-    aws = {}
-    if "aws" in st.secrets:
-        aws_conf = st.secrets["aws"]
-        aws["aws_access_key_id"] = aws_conf.get("AWS_ACCESS_KEY_ID")
-        aws["aws_secret_access_key"] = aws_conf.get("AWS_SECRET_ACCESS_KEY")
-        aws["region_name"] = aws_conf.get("AWS_REGION")
-    else:
-        aws["aws_access_key_id"] = os.environ.get("AWS_ACCESS_KEY_ID")
-        aws["aws_secret_access_key"] = os.environ.get("AWS_SECRET_ACCESS_KEY")
-        aws["region_name"] = os.environ.get("AWS_REGION")
+# ONLY present the 1 GB option/hint (no alternative small-file text)
+uploader_hint = "Upload CSV (up to 1024 MB — ensure server.maxUploadSize is set to 1024 MB)"
+uploaded = st.sidebar.file_uploader(uploader_hint, type="csv")
+if uploaded is None:
+    st.info("Please upload a dataset to proceed.")
+    st.stop()
 
-    if not aws["aws_access_key_id"] or not aws["aws_secret_access_key"]:
-        return None
+# We'll always use chunked reading (no "small-file alternative").
+# Use a non-cached loader so we can show progress and live messages while reading.
+def _process_chunk(df_chunk, numeric_cols, idcols):
+    df_chunk.columns = [c.strip() for c in df_chunk.columns]
+    for col in ['TRN_DATE', 'ZED_DATE']:
+        if col in df_chunk.columns:
+            df_chunk[col] = pd.to_datetime(df_chunk[col], errors='coerce')
+    for nc in numeric_cols:
+        if nc in df_chunk.columns:
+            df_chunk[nc] = pd.to_numeric(df_chunk[nc], errors='coerce').fillna(0)
+    for col in idcols:
+        if col in df_chunk.columns:
+            df_chunk[col] = df_chunk[col].astype(str).fillna('').str.strip()
+    if 'CUST_CODE' not in df_chunk.columns:
+        if all(c in df_chunk.columns for c in idcols):
+            df_chunk['CUST_CODE'] = (
+                df_chunk['STORE_CODE'].str.strip() + '-' +
+                df_chunk['TILL'].str.strip() + '-' +
+                df_chunk['SESSION'].str.strip() + '-' +
+                df_chunk['RCT'].str.strip()
+            )
+    if 'CUST_CODE' in df_chunk.columns:
+        df_chunk['CUST_CODE'] = df_chunk['CUST_CODE'].astype(str).str.strip()
+    return df_chunk
 
-    return boto3.client("s3",
-                        aws_access_key_id=aws["aws_access_key_id"],
-                        aws_secret_access_key=aws["aws_secret_access_key"],
-                        region_name=aws["region_name"])
-
-def make_presigned_post(bucket_name: str, object_name: str, fields: dict = None, conditions: list = None, expiration: int = 3600):
+def load_and_prepare_chunked(uploaded_file, chunksize=200_000):
     """
-    Generate a presigned POST dict to allow direct browser upload to S3.
-    Returns dict with url and fields to include in the multipart POST.
+    Always reads CSV in chunks, processes each chunk and returns the concatenated dataframe.
+    Provides live progress messages to Streamlit.
     """
-    s3_client = get_boto3_client()
-    if s3_client is None:
-        raise RuntimeError("AWS credentials not found in st.secrets or environment variables.")
+    numeric_cols = ['QTY', 'CP_PRE_VAT', 'SP_PRE_VAT', 'COST_PRE_VAT', 'NET_SALES', 'VAT_AMT']
+    idcols = ['STORE_CODE', 'TILL', 'SESSION', 'RCT']
+
+    # Attempt to estimate file size (MB) if available for user info
+    size_mb = None
     try:
-        response = s3_client.generate_presigned_post(Bucket=bucket_name,
-                                                     Key=object_name,
-                                                     Fields=fields or {},
-                                                     Conditions=conditions or [],
-                                                     ExpiresIn=expiration)
-    except ClientError as e:
-        raise RuntimeError(f"Could not generate presigned POST: {e}")
-    return response
-
-def download_s3_to_buffer(bucket: str, key: str) -> io.BytesIO:
-    """Download S3 object into a BytesIO buffer"""
-    s3_client = get_boto3_client()
-    if s3_client is None:
-        raise RuntimeError("AWS credentials not found in st.secrets or environment variables.")
-    bio = io.BytesIO()
-    try:
-        s3_client.download_fileobj(bucket, key, bio)
-    except ClientError as e:
-        raise RuntimeError(f"Failed to download S3 object: {e}")
-    bio.seek(0)
-    return bio
-
-# ---------- Local CSV loader (chunked safe) ----------
-@st.cache_data(show_spinner=True)
-def read_csv_chunked(file_like, numeric_cols: Optional[List[str]] = None, idcols: Optional[List[str]] = None):
-    """
-    Read CSV from file-like object using a chunked approach and return prepared DataFrame.
-    - file_like: a file-like object (BytesIO, TemporaryFile, etc) positioned at 0
-    - numeric_cols, idcols: optional lists of columns to coerce
-    """
-    numeric_cols = numeric_cols or ['QTY', 'CP_PRE_VAT', 'SP_PRE_VAT', 'COST_PRE_VAT', 'NET_SALES', 'VAT_AMT']
-    idcols = idcols or ['STORE_CODE', 'TILL', 'SESSION', 'RCT']
-
-    try:
-        file_like.seek(0)
+        size = getattr(uploaded_file, "size", None)
+        if size:
+            size_mb = size / (1024 * 1024)
     except Exception:
-        pass
+        size_mb = None
 
-    CHUNK_ROWS = 200_000
-    chunks = []
+    status = st.empty()
+    progress_placeholder = st.empty()
+    status.info("Starting chunked load...")
+
+    # Ensure file pointer at start
     try:
-        reader = pd.read_csv(file_like, on_bad_lines='skip', low_memory=False, chunksize=CHUNK_ROWS)
-        for chunk in reader:
-            # cleanup chunk
-            chunk.columns = [c.strip() for c in chunk.columns]
-            for col in ['TRN_DATE', 'ZED_DATE']:
-                if col in chunk.columns:
-                    chunk[col] = pd.to_datetime(chunk[col], errors='coerce')
-            for nc in numeric_cols:
-                if nc in chunk.columns:
-                    # Remove thousand separators if present, then to numeric
-                    chunk[nc] = pd.to_numeric(chunk[nc].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            for col in idcols:
-                if col in chunk.columns:
-                    chunk[col] = chunk[col].astype(str).fillna('').str.strip()
-            # build CUST_CODE if not present
-            if 'CUST_CODE' not in chunk.columns and all(c in chunk.columns for c in idcols):
-                chunk['CUST_CODE'] = (chunk['STORE_CODE'].str.strip() + '-' + chunk['TILL'].str.strip() + '-' +
-                                     chunk['SESSION'].str.strip() + '-' + chunk['RCT'].str.strip())
-            chunks.append(chunk)
-        if len(chunks) == 0:
-            return pd.DataFrame()
-        df = pd.concat(chunks, ignore_index=True)
-        # final cleanup
-        if 'CUST_CODE' in df.columns:
-            df['CUST_CODE'] = df['CUST_CODE'].astype(str).str.strip()
-        return df
-    except pd.errors.EmptyDataError:
-        return pd.DataFrame()
+        uploaded_file.seek(0)
+    except Exception:
+        # Some UploadedFile may not support seek - convert to BytesIO
+        uploaded_file = io.BytesIO(uploaded_file.getvalue())
+
+    chunks = []
+    total_rows = 0
+    chunk_count = 0
+
+    try:
+        reader = pd.read_csv(uploaded_file, on_bad_lines='skip', low_memory=False, chunksize=chunksize)
     except Exception as e:
-        raise
+        status.error(f"Failed to open CSV for chunked reading: {e}")
+        st.stop()
 
-# ---------- UI: Choose upload method ----------
-st.header("1) Upload your CSV")
-st.markdown("Option A: Streamlit uploader (subject to server upload limit). Option B: Direct upload from your browser to S3 (bypasses Streamlit limits).")
+    with st.spinner("Reading CSV in chunks..."):
+        for chunk in reader:
+            chunk_count += 1
+            processed = _process_chunk(chunk, numeric_cols, idcols)
+            rows = len(processed)
+            total_rows += rows
+            chunks.append(processed)
 
-colA, colB = st.columns(2)
+            # update lightweight progress info
+            progress_placeholder.write(f"Chunks processed: {chunk_count} — Rows read so far: {total_rows:,}")
+        if chunk_count == 0:
+            status.error("No data found in uploaded CSV.")
+            st.stop()
 
-with colA:
-    st.subheader("A — Streamlit uploader")
-    uploaded_file = st.file_uploader("Upload CSV (via Streamlit)", type="csv", accept_multiple_files=False)
-    if uploaded_file is not None:
-        st.success(f"Received file: {uploaded_file.name} ({uploaded_file.size:,} bytes)")
-        try:
-            df_local = read_csv_chunked(uploaded_file)
-            st.info(f"Loaded {len(df_local)} rows.")
-            st.session_state["latest_df_rows"] = len(df_local)
-            st.session_state["latest_df_sample"] = df_local.head(3).to_dict()
-        except Exception as e:
-            st.error(f"Failed to parse uploaded CSV: {e}")
+    status.success(f"Finished reading CSV: {chunk_count} chunks, {total_rows:,} rows.")
+    # Concatenate
+    try:
+        df = pd.concat(chunks, ignore_index=True)
+    except Exception as e:
+        status.error(f"Failed to concatenate chunks: {e}")
+        st.stop()
 
-with colB:
-    st.subheader("B — Direct browser → S3 upload (recommended for >200MB)")
-    st.markdown("Instructions:")
-    st.markdown("1) Enter S3 bucket name and a target object key (filename) -> 2) Click Generate Form -> 3) Use the browser file control to select and upload file directly to S3 -> 4) Copy the uploaded object key and use 'Process S3 file' below to download & process it.")
-    s3_bucket = st.text_input("S3 bucket name", key="s3_bucket")
-    s3_key_prefix = st.text_input("S3 key prefix (optional)", value="", key="s3_prefix")
-    desired_filename = st.text_input("Target object key (e.g. uploads/mybigfile.csv)", key="s3_key")
-    if s3_key_prefix and not desired_filename:
-        desired_filename = s3_key_prefix.rstrip("/") + "/"
-    if st.button("Generate S3 Upload Form"):
-        if not s3_bucket or not desired_filename:
-            st.error("Provide S3 bucket name and object key.")
+    # Validate presence of CUST_CODE or idcols
+    if 'CUST_CODE' not in df.columns:
+        if all(c in df.columns for c in idcols):
+            df['CUST_CODE'] = (
+                df['STORE_CODE'].str.strip() + '-' +
+                df['TILL'].str.strip() + '-' +
+                df['SESSION'].str.strip() + '-' +
+                df['RCT'].str.strip()
+            )
         else:
-            # Generate a presigned POST
-            # Ensure credentials exist
-            client = get_boto3_client()
-            if client is None:
-                st.error("AWS credentials not found. Put your keys in Streamlit Secrets under [aws] or set environment variables.")
-            else:
-                # allow small content-type checks but keep minimal conditions to ensure broad uploads
-                object_key = desired_filename
-                try:
-                    presigned = make_presigned_post(s3_bucket, object_key, expiration=3600)
-                except Exception as e:
-                    st.error(str(e))
-                    presigned = None
-                if presigned:
-                    # Build HTML/JS uploader using presigned POST fields
-                    upload_url = presigned["url"]
-                    fields = presigned["fields"]
-                    # Create simple HTML uploader - user uploads directly to S3
-                    post_fields = "".join([f'<input type="hidden" name="{k}" value="{v}"/>' for k, v in fields.items()])
-                    html = f"""
-                    <html>
-                      <body>
-                        <p><b>Direct S3 Upload form</b></p>
-                        <input id="file" type="file" />
-                        <button onclick="upload()">Upload to S3</button>
-                        <div id="status"></div>
-                        <script>
-                          async function upload() {{
-                            const fileInput = document.getElementById('file');
-                            if (!fileInput.files.length) {{
-                              alert('Select a file first');
-                              return;
-                            }}
-                            const file = fileInput.files[0];
-                            const url = "{upload_url}";
-                            const form = new FormData();
-                            {''.join([f'form.append("{k}", "{v}");\\n                            ' for k, v in fields.items()])}
-                            // Key must match the presigned Key field; if using dynamic key you would set here
-                            form.append('file', file);
-                            document.getElementById('status').innerText = "Uploading...";
-                            try {{
-                              const resp = await fetch(url, {{
-                                method: 'POST',
-                                body: form
-                              }});
-                              if (resp.ok) {{
-                                document.getElementById('status').innerHTML = "Upload succeeded. Object key: <code>{object_key}</code>";
-                              }} else {{
-                                document.getElementById('status').innerText = "Upload failed: " + resp.status + " " + resp.statusText;
-                              }}
-                            }} catch (err) {{
-                              document.getElementById('status').innerText = "Upload error: " + err;
-                            }}
-                          }}
-                        </script>
-                      </body>
-                    </html>
-                    """
-                    st.components.v1.html(html, height=220, scrolling=True)
-                    st.success("S3 upload form generated. After upload, use the object key to process the file below.")
+            missing = [c for c in idcols if c not in df.columns]
+            status.error(f"Missing columns for CUST_CODE: {missing}")
+            st.stop()
 
-# ---------- Process S3 uploaded file ----------
-st.markdown("---")
-st.header("2) Process a CSV that's already in S3 (download & parse server-side)")
-st.markdown("If you used the Direct S3 Upload flow above, paste the exact object key here and click Process. The app will download directly from S3 and parse in chunks.")
+    # Clean up placeholders
+    progress_placeholder.empty()
+    return df
 
-s3_bucket_proc = st.text_input("S3 bucket to download from (if different than above)", value=s3_bucket or "", key="proc_bucket")
-s3_object_key = st.text_input("S3 object key to process (e.g. uploads/mybigfile.csv)", key="proc_key")
-if st.button("Process S3 file"):
-    if not s3_bucket_proc or not s3_object_key:
-        st.error("Provide both bucket and object key.")
+# Load data (always chunked). Show progress and immediate debug outputs.
+df = load_and_prepare_chunked(uploaded, chunksize=200_000)
+
+# Quick diagnostics & visible outputs so user can see what's happened
+st.subheader("Upload Summary & Diagnostics")
+col_a, col_b = st.columns(2)
+with col_a:
+    st.write("Shape:")
+    st.write({"rows": df.shape[0], "columns": df.shape[1]})
+    st.write("Columns and dtypes:")
+    st.dataframe(pd.DataFrame(df.dtypes, columns=["dtype"]).reset_index().rename(columns={"index": "column"}))
+    st.write("Sample (first 10 rows):")
+    st.dataframe(df.head(10))
+with col_b:
+    st.write("Basic stats for numeric columns:")
+    if any(col for col in df.columns if np.issubdtype(df[col].dtype, np.number)):
+        st.dataframe(df.describe().transpose())
     else:
-        st.info("Downloading file from S3 and processing (chunked)... This may take a while for very large files.")
-        try:
-            bio = download_s3_to_buffer(s3_bucket_proc, s3_object_key)
-            df_from_s3 = read_csv_chunked(bio)
-            st.success(f"Downloaded and parsed {len(df_from_s3)} rows from s3://{s3_bucket_proc}/{s3_object_key}")
-            # Basic example analytics: group NET_SALES by SALES_CHANNEL_L1 if present
-            if 'NET_SALES' in df_from_s3.columns and 'SALES_CHANNEL_L1' in df_from_s3.columns:
-                gs = df_from_s3.groupby('SALES_CHANNEL_L1', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
-                gs['NET_SALES_M'] = gs['NET_SALES'] / 1_000_000
-                fig = px.pie(gs, names='SALES_CHANNEL_L1', values='NET_SALES_M', title="Sales by Channel (M)")
-                st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(gs.head(50), use_container_width=True)
-            else:
-                st.info("Parsed file. No SALES_CHANNEL_L1 or NET_SALES columns found; showing sample rows.")
-                st.dataframe(df_from_s3.head(50), use_container_width=True)
-            # cache last processed summary for convenience
-            st.session_state['last_loaded_rows'] = len(df_from_s3)
-        except Exception as e:
-            st.error(f"Failed to process S3 file: {e}")
+        st.write("No numeric columns detected to describe.")
+    st.write("Unique counts of key IDs:")
+    id_summary = {
+        "unique_STORE_NAME": int(df['STORE_NAME'].nunique()) if 'STORE_NAME' in df.columns else None,
+        "unique_STORE_CODE": int(df['STORE_CODE'].nunique()) if 'STORE_CODE' in df.columns else None,
+        "unique_CUST_CODE": int(df['CUST_CODE'].nunique()) if 'CUST_CODE' in df.columns else None,
+    }
+    st.write(id_summary)
 
-# ---------- Small diagnostics ----------
-st.markdown("---")
-st.write("Diagnostics / tips:")
-st.write("- If you see the Streamlit uploader rejecting >200MB, use the Direct S3 Upload form instead.")
-st.write("- To enable direct S3 uploads you must provide AWS credentials in Streamlit Secrets or environment variables.")
-st.write("- Recommended: set server.maxUploadSize = 1024 in .streamlit/config.toml and restart app.")
+# create time grid for other parts of the app
+def get_time_grid():
+    start_time = pd.Timestamp("00:00:00")
+    intervals = [(start_time + timedelta(minutes=30*i)).time() for i in range(48)]
+    col_labels = [f"{t.hour:02d}:{t.minute:02d}" for t in intervals]
+    return intervals, col_labels
+
+intervals, col_labels = get_time_grid()
+
+def download_button(obj, filename, label, use_xlsx=False):
+    if use_xlsx:
+        towrite = io.BytesIO()
+        obj.to_excel(towrite, encoding="utf-8", index=False, engine='openpyxl')
+        towrite.seek(0)
+        st.download_button(label, towrite, file_name=filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    else:
+        if isinstance(obj, (pd.Series, pd.Index)):
+            obj = obj.reset_index()
+        st.download_button(label, obj.to_csv(index=False).encode("utf-8"), file_name=filename, mime="text/csv")
+
+def download_plot(fig, filename):
+    try:
+        img_bytes = fig.to_image(format="png", width=1200, height=600)
+        st.download_button("⬇️ Download Plot as PNG", img_bytes, filename=filename, mime="image/png")
+    except Exception:
+        st.info("Image download is unavailable (likely missing `kaleido`). Table will still download fine.")
+
+# Main UI sections (kept minimal here) — default to showing a Global Sales Overview output so the user sees app outputs immediately
+st.subheader("Quick Insights (auto-generated)")
+
+if 'SALES_CHANNEL_L1' in df.columns and 'NET_SALES' in df.columns:
+    gs = df.groupby('SALES_CHANNEL_L1', as_index=False)['NET_SALES'].sum()
+    gs['NET_SALES_M'] = gs['NET_SALES'] / 1_000_000
+    gs['PCT'] = (gs['NET_SALES'] / gs['NET_SALES'].sum()) * 100
+    labels = [f"{row['SALES_CHANNEL_L1']} ({row['PCT']:.1f}% | {row['NET_SALES_M']:.1f}M)" for _, row in gs.iterrows()]
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=gs['NET_SALES_M'],
+        hole=0.57,
+        marker=dict(colors=px.colors.qualitative.Plotly),
+        text=[f"{p:.1f}%" for p in gs['PCT']],
+        textinfo='text',
+        sort=False,
+    )])
+    fig.update_layout(title="SALES CHANNEL TYPE — Global Overview", height=400, margin=dict(t=60))
+    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(gs)
+    download_button(gs, "global_sales_overview.csv", "⬇️ Download Table")
+    download_plot(fig, "global_sales_overview.png")
+else:
+    st.warning("Columns SALES_CHANNEL_L1 and/or NET_SALES are missing; cannot produce Global Sales Overview.")
+
+# Also produce a small store-wise receipts by time chart if TRN_DATE and STORE_NAME exist
+if 'TRN_DATE' in df.columns and 'STORE_NAME' in df.columns:
+    try:
+        dff = df.dropna(subset=['TRN_DATE']).copy()
+        dff['TRN_DATE'] = pd.to_datetime(dff['TRN_DATE'], errors='coerce')
+        # pick a store sample to display if many exist
+        stores = dff["STORE_NAME"].dropna().unique().tolist()
+        sample_store = stores[0] if stores else None
+        if sample_store:
+            st.write(f"Receipts by time for a sample store: {sample_store}")
+            dff_sample = dff[dff["STORE_NAME"] == sample_store].copy()
+            for c in ["STORE_CODE","TILL","SESSION","RCT"]:
+                if c in dff_sample.columns:
+                    dff_sample[c] = dff_sample[c].astype(str).fillna('').str.strip()
+            dff_sample['CUST_CODE'] = dff_sample.get('CUST_CODE', dff_sample.get('CUST_CODE', ''))  # safe-get
+            dff_sample['TIME_ONLY'] = dff_sample['TRN_DATE'].dt.floor('30T').dt.time
+            heat = dff_sample.groupby('TIME_ONLY')['CUST_CODE'].nunique().reindex(intervals, fill_value=0)
+            fig2 = px.bar(x=col_labels, y=heat.values, labels={"x":"Time","y":"Receipts"}, text=heat.values,
+                          color_discrete_sequence=['#3192e1'], title=f"Receipts by Time - {sample_store}", height=360)
+            st.plotly_chart(fig2, use_container_width=True)
+            st.dataframe(heat.reset_index().rename(columns={0: 'receipts'}))
+            download_button(heat.reset_index(), "customer_traffic_sample_store.csv", "⬇️ Download Table")
+        else:
+            st.info("No STORE_NAME values found to display time-based receipts.")
+    except Exception as e:
+        st.error(f"Error while generating time chart: {e}")
+else:
+    st.info("Skipping store time chart: TRN_DATE and/or STORE_NAME columns not present.")
+
+# Sidebar note (only the 1GB instruction)
+st.sidebar.markdown(
+    "---\nTo allow 1 GB uploads, set the Streamlit server config:\n\n"
+    "Linux/macOS (env): export STREAMLIT_SERVER_MAX_UPLOAD_SIZE=1024\n\n"
+    "Or add repository file: .streamlit/config.toml with content:\nserver.maxUploadSize = 1024\n"
+)
