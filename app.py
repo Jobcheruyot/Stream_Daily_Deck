@@ -98,9 +98,13 @@ def donut_from_agg(df_agg, label_col, value_col, title, hole=0.55, colors=None, 
     # compute pct for labels
     s = sum(vals) if sum(vals) != 0 else 1
     legend_labels = [f"{lab} ({100*val/s:.1f}% | {val/1_000_000:.1f} M)" if value_is_millions else f"{lab} ({100*val/s:.1f}%)" for lab,val in zip(labels, vals)]
+    # build marker dict only if needed; Pie expects 'colors' not 'color' for marker
+    marker = dict(line=dict(color='white', width=1))
+    if colors:
+        marker['colors'] = colors
     fig = go.Figure(data=[go.Pie(labels=legend_labels, values=values_for_plot, hole=hole,
                                  hovertemplate='<b>%{label}</b><br>' + hover + '<extra></extra>',
-                                 marker=dict(line=dict(color='white', width=1), color=colors))])
+                                 marker=marker)])
     fig.update_layout(title=title)
     return fig
 
