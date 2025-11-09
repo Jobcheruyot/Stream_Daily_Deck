@@ -1,10 +1,5 @@
 # Streamlit app converted from Colab notebook "Superdeck"
-# Performance-focused revision
-# Key fixes:
-#  - Heavy/data-prep work is computed once and cached (@st.cache_data)
-#  - Common aggregations reused via small cached helpers
-#  - Removed repeated to_datetime / numeric conversions across views
-#  - Added lightweight spinner to indicate work in progress
+# Performance-focused revision, with corrected Global Loyalty Overview data-prep
 # Usage:
 #   streamlit run app.py
 
@@ -22,12 +17,10 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # -----------------------
 @st.cache_data
 def load_csv(path: str) -> pd.DataFrame:
-    # cached by path; repeated calls with same path are fast
     return pd.read_csv(path, on_bad_lines='skip', low_memory=False)
 
 @st.cache_data
 def load_uploaded_file(contents: bytes) -> pd.DataFrame:
-    # cache by file contents bytes so repeated re-runs don't reparse
     from io import BytesIO
     return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
 
@@ -40,7 +33,6 @@ def smart_load():
         st.sidebar.success("Loaded uploaded CSV")
         return df
 
-    # try default path
     default_path = "/content/DAILY_POS_TRN_ITEMS_2025-10-21.csv"
     try:
         with st.spinner(f"Loading default CSV: {default_path}"):
@@ -56,15 +48,10 @@ def smart_load():
 # -----------------------
 @st.cache_data
 def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Do a one-time, cached cleaning and derivation of commonly used columns.
-    This is the main performance win: we avoid re-doing conversions per view.
-    """
     if df is None:
         return df
     d = df.copy()
 
-    # Standardize string columns and avoid repeated astype/strip in views
     str_cols = ['STORE_CODE','TILL','SESSION','RCT','STORE_NAME','CASHIER','ITEM_CODE',
                 'ITEM_NAME','DEPARTMENT','CATEGORY','CU_DEVICE_SERIAL','CAP_CUSTOMER_CODE',
                 'LOYALTY_CUSTOMER_CODE','SUPPLIER_NAME','SALES_CHANNEL_L1','SALES_CHANNEL_L2','SHIFT']
@@ -72,10 +59,8 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
         if c in d.columns:
             d[c] = d[c].fillna('').astype(str).str.strip()
 
-    # Dates: single conversion
     if 'TRN_DATE' in d.columns:
         d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-        # drop rows without TRN_DATE - many functions rely on it
         d = d.dropna(subset=['TRN_DATE']).copy()
         d['DATE'] = d['TRN_DATE'].dt.date
         d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
@@ -84,21 +69,17 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
     if 'ZED_DATE' in d.columns:
         d['ZED_DATE'] = pd.to_datetime(d['ZED_DATE'], errors='coerce')
 
-    # Numeric columns: parse once, removing commas
     numeric_cols = ['QTY', 'CP_PRE_VAT', 'SP_PRE_VAT', 'COST_PRE_VAT', 'NET_SALES', 'VAT_AMT']
     for c in numeric_cols:
         if c in d.columns:
             d[c] = pd.to_numeric(d[c].astype(str).str.replace(',', '', regex=False).str.strip(), errors='coerce').fillna(0)
 
-    # Make GROSS_SALES
     if 'GROSS_SALES' not in d.columns:
         d['GROSS_SALES'] = d.get('NET_SALES', 0) + d.get('VAT_AMT', 0)
 
-    # Composite keys once
     if all(col in d.columns for col in ['STORE_CODE','TILL','SESSION','RCT']):
         d['CUST_CODE'] = d['STORE_CODE'].astype(str) + '-' + d['TILL'].astype(str) + '-' + d['SESSION'].astype(str) + '-' + d['RCT'].astype(str)
     else:
-        # Try to preserve existing CUST_CODE if it exists
         if 'CUST_CODE' not in d.columns:
             d['CUST_CODE'] = ''
 
@@ -108,15 +89,12 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
     if 'STORE_NAME' in d.columns and 'CASHIER' in d.columns:
         d['CASHIER-COUNT'] = d['CASHIER'].astype(str) + '-' + d['STORE_NAME'].astype(str)
 
-    # Shift bucket for many analyses
     if 'SHIFT' in d.columns:
         d['Shift_Bucket'] = np.where(d['SHIFT'].str.upper().str.contains('NIGHT', na=False), 'Night', 'Day')
 
-    # Normalize SP_PRE_VAT as numeric (already handled above) but ensure float dtype
     if 'SP_PRE_VAT' in d.columns:
         d['SP_PRE_VAT'] = d['SP_PRE_VAT'].astype(float)
 
-    # Ensure NET_SALES float
     if 'NET_SALES' in d.columns:
         d['NET_SALES'] = d['NET_SALES'].astype(float)
 
@@ -125,9 +103,6 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
 # -----------------------
 # Small cached aggregation helpers
 # -----------------------
-# These helpers accept the cleaned DataFrame and a string parameter. They are cached so
-# repeated UI interactions don't recompute groupbys unnecessarily.
-
 @st.cache_data
 def agg_net_sales_by(df: pd.DataFrame, col: str) -> pd.DataFrame:
     if col not in df.columns:
@@ -137,7 +112,6 @@ def agg_net_sales_by(df: pd.DataFrame, col: str) -> pd.DataFrame:
 
 @st.cache_data
 def agg_count_distinct(df: pd.DataFrame, group_by: list, agg_col: str, agg_name: str) -> pd.DataFrame:
-    # generic distinct count aggregator
     g = df.groupby(group_by).agg({agg_col: pd.Series.nunique}).reset_index().rename(columns={agg_col: agg_name})
     return g
 
@@ -145,22 +119,15 @@ def agg_count_distinct(df: pd.DataFrame, group_by: list, agg_col: str, agg_name:
 # Table formatting helper
 # -----------------------
 def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index_col: str | None = None, total_label: str = 'TOTAL'):
-    """
-    Append a totals row (summing numeric columns) to df and format numeric columns with commas.
-    - numeric_cols: list of column names to treat as numeric. If None, autodetect numeric dtypes.
-    - index_col: if given, place the total_label in that column (or the first column if missing).
-    """
     if df is None or df.empty:
         st.dataframe(df)
         return
 
     df_display = df.copy()
 
-    # If numeric_cols not provided, detect numeric columns
     if numeric_cols is None:
         numeric_cols = list(df_display.select_dtypes(include=[np.number]).columns)
 
-    # Compute totals row
     totals = {}
     for col in df_display.columns:
         if col in numeric_cols:
@@ -171,22 +138,18 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index
         else:
             totals[col] = ''
 
-    # Put label in index_col or first string column
     label_col = None
     if index_col and index_col in df_display.columns:
         label_col = index_col
     else:
-        # find first non-numeric column to host label
         non_numeric_cols = [c for c in df_display.columns if c not in numeric_cols]
         label_col = non_numeric_cols[0] if non_numeric_cols else df_display.columns[0]
 
     totals[label_col] = total_label
 
-    # Append totals row
     tot_df = pd.DataFrame([totals], columns=df_display.columns)
     appended = pd.concat([df_display, tot_df], ignore_index=True)
 
-    # Formatting
     for col in numeric_cols:
         if col in appended.columns:
             series_vals = appended[col].dropna().astype(float)
@@ -201,7 +164,7 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index
     st.dataframe(appended, use_container_width=True)
 
 # -----------------------
-# Helper plotting utils (unchanged)
+# Helper plotting utils
 # -----------------------
 def donut_from_agg(df_agg, label_col, value_col, title, hole=0.55, colors=None, legend_title=None, value_is_millions=False):
     labels = df_agg[label_col].astype(str).tolist()
@@ -225,7 +188,7 @@ def donut_from_agg(df_agg, label_col, value_col, title, hole=0.55, colors=None, 
     return fig
 
 # -----------------------
-# SALES section implementations (use cached precomputed df & cached aggs)
+# SALES section implementations
 # -----------------------
 def sales_global_overview(df):
     st.header("Global sales Overview")
@@ -267,7 +230,6 @@ def night_vs_day_ratio(df):
     if 'Shift_Bucket' not in df.columns or 'STORE_NAME' not in df.columns:
         st.warning("Missing Shift_Bucket or STORE_NAME")
         return
-    # Use precomputed Shift_Bucket and TIME columns
     stores_with_night = df[df['Shift_Bucket'] == 'Night']['STORE_NAME'].unique()
     df_nd = df[df['STORE_NAME'].isin(stores_with_night)].copy()
     ratio = df_nd.groupby(['STORE_NAME','Shift_Bucket'])['NET_SALES'].sum().reset_index()
@@ -391,7 +353,7 @@ def stores_sales_summary(df):
     format_and_display(sales_summary[['STORE_NAME','NET_SALES','GROSS_SALES','% Contribution','Customer Numbers']].fillna(0), numeric_cols=['NET_SALES','GROSS_SALES','% Contribution','Customer Numbers'], index_col='STORE_NAME', total_label='TOTAL')
 
 # -----------------------
-# OPERATIONS implementations (use precomputed columns)
+# OPERATIONS implementations
 # -----------------------
 def customer_traffic_storewise(df):
     st.header("Customer Traffic Heatmap — Storewise (30-min slots)")
@@ -443,9 +405,7 @@ def avg_customers_per_till(df):
     if 'TRN_DATE' not in df.columns:
         st.warning("Missing TRN_DATE")
         return
-    # Build first-touch customers per 30-min
     d = df.copy()
-    # ensure CUST_CODE exists
     if 'CUST_CODE' not in d.columns or not d['CUST_CODE'].astype(bool).any():
         for c in ['STORE_CODE','TILL','SESSION','RCT']:
             if c in d.columns:
@@ -577,7 +537,7 @@ def tax_compliance(df):
     format_and_display(store_summary.reset_index(), numeric_cols=['Compliant','Non-Compliant','Total','Compliance_%'], index_col='STORE_NAME', total_label='TOTAL')
 
 # -----------------------
-# INSIGHTS implementations (use cached precomputed df & cached aggs)
+# INSIGHTS implementations (corrected Global Loyalty Overview)
 # -----------------------
 def customer_baskets_overview(df):
     st.header("Customer Baskets Overview")
@@ -707,18 +667,76 @@ def product_performance(df):
     st.plotly_chart(fig, use_container_width=True)
 
 def global_loyalty_overview(df):
+    """
+    Corrected data-prep to align with the original snippet:
+      - explicit validation for required columns
+      - parse TRN_DATE, drop invalid rows
+      - trim strings for STORE_NAME, CUST_CODE, LOYALTY_CUSTOMER_CODE
+      - coerce NET_SALES to numeric
+      - keep only valid loyalty codes
+      - one record per (store, receipt, loyalty customer)
+    """
     st.header("Global Loyalty Overview")
-    if not all(c in df.columns for c in ['TRN_DATE','STORE_NAME','CUST_CODE','LOYALTY_CUSTOMER_CODE','NET_SALES']):
-        st.warning("Missing required loyalty columns")
+    required = ['TRN_DATE','STORE_NAME','CUST_CODE','LOYALTY_CUSTOMER_CODE','NET_SALES']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        st.warning(f"Missing required columns for Global Loyalty Overview: {missing}")
         return
-    d = df.copy()
-    d = d[d['LOYALTY_CUSTOMER_CODE'].str.replace('nan','').str.strip().astype(bool)]
-    receipts = d.groupby(['STORE_NAME','CUST_CODE','LOYALTY_CUSTOMER_CODE'], as_index=False).agg(Basket_Value=('NET_SALES','sum'), First_Time=('TRN_DATE','min'))
-    per_branch_multi = receipts.groupby(['STORE_NAME','LOYALTY_CUSTOMER_CODE']).agg(Baskets_in_Store=('CUST_CODE','nunique'), Total_Value_in_Store=('Basket_Value','sum')).reset_index()
-    per_branch_multi = per_branch_multi[per_branch_multi['Baskets_in_Store']>1]
-    overview = per_branch_multi.groupby('STORE_NAME', as_index=False).agg(Loyal_Customers_Multi=('LOYALTY_CUSTOMER_CODE','nunique'), Total_Baskets_of_Those=('Baskets_in_Store','sum'), Total_Value_of_Those=('Total_Value_in_Store','sum'))
-    overview['Avg_Baskets_per_Customer'] = (overview['Total_Baskets_of_Those'] / overview['Loyal_Customers_Multi']).round(2)
-    format_and_display(overview.sort_values('Loyal_Customers_Multi', ascending=False), numeric_cols=['Loyal_Customers_Multi','Total_Baskets_of_Those','Total_Value_of_Those','Avg_Baskets_per_Customer'], index_col='STORE_NAME', total_label='TOTAL')
+
+    # Work on a local copy
+    dfL = df.copy()
+
+    # Parse date once and drop invalids
+    dfL['TRN_DATE'] = pd.to_datetime(dfL['TRN_DATE'], errors='coerce')
+    dfL = dfL.dropna(subset=['TRN_DATE','STORE_NAME','CUST_CODE'])
+
+    # Trim key string columns
+    for c in ['STORE_NAME','CUST_CODE','LOYALTY_CUSTOMER_CODE']:
+        if c in dfL.columns:
+            dfL[c] = dfL[c].astype(str).str.strip()
+
+    # Ensure numeric NET_SALES
+    dfL['NET_SALES'] = pd.to_numeric(dfL['NET_SALES'], errors='coerce').fillna(0)
+
+    # Keep only rows with valid (non-empty) loyalty codes
+    dfL = dfL[dfL['LOYALTY_CUSTOMER_CODE'].replace({'nan':'', 'NaN':'', 'None':''}).str.len() > 0].copy()
+
+    # One record per (store, receipt, loyalty customer)
+    receipts = (
+        dfL.groupby(['STORE_NAME','CUST_CODE','LOYALTY_CUSTOMER_CODE'], as_index=False)
+           .agg(
+               Basket_Value=('NET_SALES','sum'),
+               First_Time=('TRN_DATE','min')
+           )
+    )
+
+    # Customers that have >1 baskets in the same store
+    per_branch_multi = receipts.groupby(['STORE_NAME','LOYALTY_CUSTOMER_CODE']).agg(
+        Baskets_in_Store=('CUST_CODE','nunique'),
+        Total_Value_in_Store=('Basket_Value','sum')
+    ).reset_index()
+
+    per_branch_multi = per_branch_multi[per_branch_multi['Baskets_in_Store'] > 1]
+
+    overview = per_branch_multi.groupby('STORE_NAME', as_index=False).agg(
+        Loyal_Customers_Multi=('LOYALTY_CUSTOMER_CODE','nunique'),
+        Total_Baskets_of_Those=('Baskets_in_Store','sum'),
+        Total_Value_of_Those=('Total_Value_in_Store','sum')
+    )
+
+    # Avoid division by zero
+    overview['Avg_Baskets_per_Customer'] = np.where(
+        overview['Loyal_Customers_Multi'] > 0,
+        (overview['Total_Baskets_of_Those'] / overview['Loyal_Customers_Multi']).round(2),
+        0.0
+    )
+
+    format_and_display(
+        overview.sort_values('Loyal_Customers_Multi', ascending=False),
+        numeric_cols=['Loyal_Customers_Multi','Total_Baskets_of_Those','Total_Value_of_Those','Avg_Baskets_per_Customer'],
+        index_col='STORE_NAME',
+        total_label='TOTAL'
+    )
 
 def branch_loyalty_overview(df):
     st.header("Branch Loyalty Overview (per-branch loyal customers with >1 baskets)")
@@ -726,6 +744,7 @@ def branch_loyalty_overview(df):
         st.warning("Missing required loyalty columns")
         return
     d = df.copy()
+    d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
     d = d[d['LOYALTY_CUSTOMER_CODE'].str.replace('nan','').str.strip().astype(bool)]
     receipts = d.groupby(['STORE_NAME','CUST_CODE','LOYALTY_CUSTOMER_CODE'], as_index=False).agg(Basket_Value=('NET_SALES','sum'), First_Time=('TRN_DATE','min'))
     stores = sorted(receipts['STORE_NAME'].unique())
@@ -830,11 +849,9 @@ def main():
     if raw_df is None:
         st.stop()
 
-    # Single cached cleaning & derivation step
     with st.spinner("Preparing data (cached) ..."):
         df = clean_and_derive(raw_df)
 
-    # Top-level sections
     section = st.sidebar.selectbox("Section", ["SALES","OPERATIONS","INSIGHTS"])
 
     if section == "SALES":
