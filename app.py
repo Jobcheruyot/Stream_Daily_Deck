@@ -1,5 +1,5 @@
 # Streamlit app converted from Colab notebook "Superdeck"
-# Updated: Operations use a single 30-minute bucket and use averages in summaries where appropriate.
+# Updated: Added table formatting helper to append totals and format numeric columns with commas.
 # Usage:
 #   streamlit run app.py
 
@@ -12,12 +12,6 @@ import textwrap
 from datetime import timedelta
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
-
-# -----------------------
-# Configuration
-# -----------------------
-# Single place to change the time bucket (minutes)
-TIME_BUCKET_MIN = 30
 
 # -----------------------
 # Utility / Data Loading
@@ -82,12 +76,11 @@ def clean_common(df):
 # -----------------------
 # Table formatting helper
 # -----------------------
-def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index_col: str | None = None, total_label: str = 'TOTAL', avg_cols: list | None = None):
+def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index_col: str | None = None, total_label: str = 'TOTAL'):
     """
-    Append a totals row to df.
-      - numeric_cols: list of column names to treat as numeric. If None, autodetect numeric dtypes.
-      - index_col: if given, place the total_label in that column (or the first non-numeric)
-      - avg_cols: list of numeric columns to show an average (mean) in the totals row instead of sum.
+    Append a totals row (summing numeric columns) to df and format numeric columns with commas.
+    - numeric_cols: list of column names to treat as numeric. If None, autodetect numeric dtypes.
+    - index_col: if given, place the total_label in that column (or the first column if missing).
     """
     if df is None or df.empty:
         st.dataframe(df)
@@ -99,29 +92,23 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index
     if numeric_cols is None:
         numeric_cols = list(df_display.select_dtypes(include=[np.number]).columns)
 
-    if avg_cols is None:
-        avg_cols = []
-
-    # Compute totals row (sum or mean depending on avg_cols)
+    # Compute totals row
     totals = {}
     for col in df_display.columns:
         if col in numeric_cols:
             try:
-                if col in avg_cols:
-                    # compute average (mean) across rows (skip NaN)
-                    totals[col] = df_display[col].astype(float).mean(skipna=True)
-                else:
-                    totals[col] = df_display[col].astype(float).sum(skipna=True)
+                totals[col] = df_display[col].astype(float).sum()
             except Exception:
                 totals[col] = ''
         else:
             totals[col] = ''
 
-    # Put label in index_col or first non-numeric column
+    # Put label in index_col or first string column
     label_col = None
     if index_col and index_col in df_display.columns:
         label_col = index_col
     else:
+        # find first non-numeric column to host label
         non_numeric_cols = [c for c in df_display.columns if c not in numeric_cols]
         label_col = non_numeric_cols[0] if non_numeric_cols else df_display.columns[0]
 
@@ -131,19 +118,18 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index
     tot_df = pd.DataFrame([totals], columns=df_display.columns)
     appended = pd.concat([df_display, tot_df], ignore_index=True)
 
-    # Formatting numeric cols (commas & decimals)
+    # Formatting
     for col in numeric_cols:
         if col in appended.columns:
             # detect integer-like
-            series_vals = appended[col].dropna().astype(float) if not appended[col].dropna().empty else pd.Series(dtype=float)
-            is_int_like = False
-            if not series_vals.empty:
-                is_int_like = np.allclose(series_vals.round(0), series_vals)
+            series_vals = appended[col].dropna().astype(float)
+            is_int_like = np.allclose(series_vals.fillna(0).round(0), series_vals.fillna(0))
             if is_int_like:
                 appended[col] = appended[col].map(lambda v: f"{int(v):,}" if pd.notna(v) and str(v) != '' else '')
             else:
                 appended[col] = appended[col].map(lambda v: f"{v:,.2f}" if pd.notna(v) and str(v) != '' else '')
 
+    # Present with st.dataframe (strings will render nicely)
     st.dataframe(appended, use_container_width=True)
 
 # -----------------------
@@ -159,8 +145,10 @@ def donut_from_agg(df_agg, label_col, value_col, title, hole=0.55, colors=None, 
     else:
         values_for_plot = vals
         hover = 'KSh %{value:,.2f}' if isinstance(vals[0], (int,float)) else '%{value}'
+    # compute pct for labels
     s = sum(vals) if sum(vals) != 0 else 1
     legend_labels = [f"{lab} ({100*val/s:.1f}% | {val/1_000_000:.1f} M)" if value_is_millions else f"{lab} ({100*val/s:.1f}%)" for lab,val in zip(labels, vals)]
+    # build marker dict only if needed; Pie expects 'colors' not 'color' for marker
     marker = dict(line=dict(color='white', width=1))
     if colors:
         marker['colors'] = colors
@@ -171,14 +159,7 @@ def donut_from_agg(df_agg, label_col, value_col, title, hole=0.55, colors=None, 
     return fig
 
 # -----------------------
-# Time bucket helper
-# -----------------------
-def floor_time_bucket(series: pd.Series):
-    """Floor a datetime Series to the configured TIME_BUCKET_MIN minutes."""
-    return series.dt.floor(f'{TIME_BUCKET_MIN}T')
-
-# -----------------------
-# SALES section implementations (unchanged except table formatting)
+# SALES section implementations
 # -----------------------
 def sales_global_overview(df):
     st.header("Global sales Overview")
@@ -189,6 +170,7 @@ def sales_global_overview(df):
     g['NET_SALES_M'] = g['NET_SALES'] / 1_000_000
     fig = donut_from_agg(g, 'SALES_CHANNEL_L1', 'NET_SALES', "<b>SALES CHANNEL TYPE — Global Overview</b>", hole=0.65, value_is_millions=True)
     st.plotly_chart(fig, use_container_width=True)
+    # Also show table with totals
     format_and_display(g[['SALES_CHANNEL_L1','NET_SALES']], numeric_cols=['NET_SALES'], index_col='SALES_CHANNEL_L1', total_label='TOTAL')
 
 def sales_by_channel_l2(df):
@@ -213,10 +195,149 @@ def sales_by_shift(df):
     fig = go.Figure(data=[go.Pie(labels=labels, values=g['NET_SALES'], hole=0.65)])
     fig.update_layout(title="<b>Global Net Sales Distribution by SHIFT</b>")
     st.plotly_chart(fig, use_container_width=True)
+    # Table with totals
     format_and_display(g[['SHIFT','NET_SALES','PCT']], numeric_cols=['NET_SALES','PCT'], index_col='SHIFT', total_label='TOTAL')
 
+def night_vs_day_ratio(df):
+    st.header("Night vs Day Shift Sales Ratio — Stores with Night Shifts")
+    # Build store-level percent Night/Day
+    if 'SHIFT' not in df.columns or 'STORE_NAME' not in df.columns:
+        st.warning("Missing SHIFT or STORE_NAME")
+        return
+    df2 = df.copy()
+    df2['Shift_Bucket'] = np.where(df2['SHIFT'].str.upper().str.contains('NIGHT', na=False), 'Night', 'Day')
+    stores_with_night = df2[df2['Shift_Bucket'] == 'Night']['STORE_NAME'].unique()
+    df_nd = df2[df2['STORE_NAME'].isin(stores_with_night)].copy()
+    ratio = df_nd.groupby(['STORE_NAME','Shift_Bucket'])['NET_SALES'].sum().reset_index()
+    ratio['STORE_TOTAL'] = ratio.groupby('STORE_NAME')['NET_SALES'].transform('sum')
+    ratio['PCT'] = 100 * ratio['NET_SALES'] / ratio['STORE_TOTAL']
+    pivot = ratio.pivot(index='STORE_NAME', columns='Shift_Bucket', values='PCT').fillna(0)
+    if pivot.empty:
+        st.info("No stores with NIGHT shift found")
+        return
+    pivot_sorted = pivot.sort_values('Night', ascending=False)
+    numbered_labels = [f"{i+1}. {s}" for i,s in enumerate(pivot_sorted.index)]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=pivot_sorted['Night'], y=numbered_labels, orientation='h', name='Night', marker_color='#d62728', text=[f"{v:.1f}%" for v in pivot_sorted['Night']], textposition='inside'))
+    # Day percent as annotations
+    for i,(n_val, d_val) in enumerate(zip(pivot_sorted['Night'], pivot_sorted['Day'])):
+        fig.add_annotation(x=n_val + 1, y=numbered_labels[i], text=f"{d_val:.1f}% Day", showarrow=False, xanchor='left')
+    fig.update_layout(title="Night vs Day Shift Sales Ratio — Stores with Night Shifts", xaxis_title="% of Store Sales", height=700)
+    st.plotly_chart(fig, use_container_width=True)
+    # Table with totals
+    table = pivot_sorted.reset_index().rename(columns={'Night':'Night_%','Day':'Day_%'})
+    format_and_display(table, numeric_cols=['Night_%','Day_%'], index_col='STORE_NAME', total_label='TOTAL')
+
+def global_day_vs_night(df):
+    st.header("Global Day vs Night Sales — Only Stores with NIGHT Shifts")
+    if 'SHIFT' not in df.columns:
+        st.warning("Missing SHIFT")
+        return
+    df2 = df.copy()
+    df2['Shift_Bucket'] = np.where(df2['SHIFT'].str.upper().str.contains('NIGHT', na=False), 'Night', 'Day')
+    stores_with_night = df2[df2['Shift_Bucket']=='Night']['STORE_NAME'].unique()
+    df_nd = df2[df2['STORE_NAME'].isin(stores_with_night)]
+    if df_nd.empty:
+        st.info("No stores with night shifts")
+        return
+    agg = df_nd.groupby('Shift_Bucket', as_index=False)['NET_SALES'].sum()
+    agg['PCT'] = 100 * agg['NET_SALES'] / agg['NET_SALES'].sum()
+    labels = [f"{r.Shift_Bucket} ({r.PCT:.1f}%)" for _,r in agg.iterrows()]
+    fig = go.Figure(go.Pie(labels=labels, values=agg['NET_SALES'], hole=0.65))
+    fig.update_layout(title="<b>Global Day vs Night Sales — Only Stores with NIGHT Shifts</b>")
+    st.plotly_chart(fig, use_container_width=True)
+    format_and_display(agg, numeric_cols=['NET_SALES','PCT'], index_col='Shift_Bucket', total_label='TOTAL')
+
+def second_highest_channel_share(df):
+    st.header("2nd-Highest Channel Share")
+    if not all(col in df.columns for col in ['STORE_NAME','SALES_CHANNEL_L1','NET_SALES']):
+        st.warning("Missing columns required")
+        return
+    data = df.copy()
+    data['NET_SALES'] = pd.to_numeric(data['NET_SALES'], errors='coerce').fillna(0)
+    store_chan = data.groupby(['STORE_NAME','SALES_CHANNEL_L1'], as_index=False)['NET_SALES'].sum()
+    store_tot = store_chan.groupby('STORE_NAME')['NET_SALES'].transform('sum')
+    store_chan['PCT'] = 100 * store_chan['NET_SALES'] / store_tot
+    store_chan = store_chan.sort_values(['STORE_NAME','PCT'], ascending=[True, False])
+    store_chan['RANK'] = store_chan.groupby('STORE_NAME').cumcount() + 1
+    second = store_chan[store_chan['RANK']==2][['STORE_NAME','SALES_CHANNEL_L1','PCT']].rename(columns={'SALES_CHANNEL_L1':'SECOND_CHANNEL','PCT':'SECOND_PCT'})
+    all_stores = store_chan['STORE_NAME'].drop_duplicates()
+    missing_stores = set(all_stores) - set(second['STORE_NAME'])
+    if missing_stores:
+        add = pd.DataFrame({'STORE_NAME':list(missing_stores),'SECOND_CHANNEL':['(None)']*len(missing_stores),'SECOND_PCT':[0.0]*len(missing_stores)})
+        second = pd.concat([second, add], ignore_index=True)
+    second_sorted = second.sort_values('SECOND_PCT', ascending=False)
+    top_n = st.sidebar.slider("Top N", min_value=10, max_value=100, value=30)
+    top_ = second_sorted.head(top_n).copy()
+    if top_.empty:
+        st.info("No stores to display")
+        return
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=top_['SECOND_PCT'], y=top_['STORE_NAME'], orientation='h',
+                         marker_color='#9aa0a6', name='Stem', hoverinfo='none',
+                         text=[f"{p:.1f}%" for p in top_['SECOND_PCT']], textposition='outside'))
+    fig.add_trace(go.Scatter(x=top_['SECOND_PCT'], y=top_['STORE_NAME'], mode='markers',
+                             marker=dict(color='#1f77b4', size=10), name='2nd Channel %',
+                             hovertemplate='%{x:.1f}%<extra></extra>'))
+    annotations = []
+    for idx, row in top_.iterrows():
+        annotations.append(dict(x=row['SECOND_PCT'] + 1, y=row['STORE_NAME'], text=f"{row['SECOND_CHANNEL']}", showarrow=False, xanchor='left', font=dict(size=10)))
+    fig.update_layout(title=f"Top {top_n} Stores by 2nd-Highest Channel Share (SALES_CHANNEL_L1)",
+                      xaxis_title="2nd-Highest Channel Share (% of Store NET_SALES)",
+                      height=max(500, 24*len(top_)),
+                      annotations=annotations, yaxis=dict(autorange='reversed'))
+    st.plotly_chart(fig, use_container_width=True)
+    # show table with totals
+    format_and_display(second_sorted[['STORE_NAME','SECOND_CHANNEL','SECOND_PCT']], numeric_cols=['SECOND_PCT'], index_col='STORE_NAME', total_label='TOTAL')
+
+def bottom_30_2nd_highest(df):
+    st.header("Bottom 30 — 2nd Highest Channel")
+    if not all(col in df.columns for col in ['STORE_NAME','SALES_CHANNEL_L1','NET_SALES']):
+        st.warning("Missing required columns")
+        return
+    data = df.copy()
+    data['NET_SALES'] = pd.to_numeric(data['NET_SALES'], errors='coerce').fillna(0)
+    store_chan = data.groupby(['STORE_NAME','SALES_CHANNEL_L1'], as_index=False)['NET_SALES'].sum()
+    store_tot = store_chan.groupby('STORE_NAME')['NET_SALES'].transform('sum')
+    store_chan['PCT'] = 100 * store_chan['NET_SALES'] / store_tot
+    store_chan = store_chan.sort_values(['STORE_NAME','PCT'], ascending=[True, False])
+    store_chan['RANK'] = store_chan.groupby('STORE_NAME').cumcount() + 1
+    top_tbl = store_chan[store_chan['RANK']==1][['STORE_NAME','SALES_CHANNEL_L1','PCT']].rename(columns={'SALES_CHANNEL_L1':'TOP_CHANNEL','PCT':'TOP_PCT'})
+    second_tbl = store_chan[store_chan['RANK']==2][['STORE_NAME','SALES_CHANNEL_L1','PCT']].rename(columns={'SALES_CHANNEL_L1':'SECOND_CHANNEL','PCT':'SECOND_PCT'})
+    ranking = pd.merge(top_tbl, second_tbl, on='STORE_NAME', how='left').fillna({'SECOND_CHANNEL':'(None)','SECOND_PCT':0})
+    bottom_30 = ranking.sort_values('SECOND_PCT', ascending=True).head(30)
+    if bottom_30.empty:
+        st.info("No stores to display")
+        return
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=bottom_30['SECOND_PCT'], y=bottom_30['STORE_NAME'], orientation='h', marker_color='#9aa0a6', name='Stem', text=[f"{v:.1f}%" for v in bottom_30['SECOND_PCT']], textposition='outside'))
+    fig.add_trace(go.Scatter(x=bottom_30['SECOND_PCT'], y=bottom_30['STORE_NAME'], mode='markers', marker=dict(color='#1f77b4', size=10), name='2nd Channel %'))
+    annotations = []
+    for idx, row in bottom_30.iterrows():
+        annotations.append(dict(x=row['SECOND_PCT'] + 1, y=row['STORE_NAME'], text=f"{row['SECOND_CHANNEL']}", showarrow=False, xanchor='left', font=dict(size=10)))
+    fig.update_layout(title="Bottom 30 Stores by 2nd-Highest Channel Share (SALES_CHANNEL_L1)", xaxis_title="2nd-Highest Channel Share (% of Store NET_SALES)", height=max(500, 24*len(bottom_30)), annotations=annotations, yaxis=dict(autorange='reversed'))
+    st.plotly_chart(fig, use_container_width=True)
+    format_and_display(bottom_30, numeric_cols=['SECOND_PCT','TOP_PCT'], index_col='STORE_NAME', total_label='TOTAL')
+
+def stores_sales_summary(df):
+    st.header("Stores Sales Summary")
+    if 'STORE_NAME' not in df.columns:
+        st.warning("Missing STORE_NAME")
+        return
+    df2 = df.copy()
+    df2['NET_SALES'] = pd.to_numeric(df2.get('NET_SALES', 0), errors='coerce').fillna(0)
+    df2['VAT_AMT'] = pd.to_numeric(df2.get('VAT_AMT', 0), errors='coerce').fillna(0)
+    df2['GROSS_SALES'] = df2['NET_SALES'] + df2['VAT_AMT']
+    sales_summary = df2.groupby('STORE_NAME', as_index=False)[['NET_SALES','GROSS_SALES']].sum().sort_values('GROSS_SALES', ascending=False)
+    sales_summary['% Contribution'] = (sales_summary['GROSS_SALES'] / sales_summary['GROSS_SALES'].sum() * 100).round(2)
+    if 'CUST_CODE' in df2.columns:
+        cust_counts = df2.groupby('STORE_NAME')['CUST_CODE'].nunique().reset_index().rename(columns={'CUST_CODE':'Customer Numbers'})
+        sales_summary = sales_summary.merge(cust_counts, on='STORE_NAME', how='left')
+    # Format & totals display
+    format_and_display(sales_summary[['STORE_NAME','NET_SALES','GROSS_SALES','% Contribution','Customer Numbers']], numeric_cols=['NET_SALES','GROSS_SALES','% Contribution','Customer Numbers'], index_col='STORE_NAME', total_label='TOTAL')
+
 # -----------------------
-# OPERATIONS implementations (updated: use TIME_BUCKET_MIN & averages)
+# OPERATIONS implementations (tables formatted where used)
 # -----------------------
 def customer_traffic_storewise(df):
     st.header("Customer Traffic Heatmap — Storewise (30-min slots)")
@@ -227,7 +348,7 @@ def customer_traffic_storewise(df):
     df2['TRN_DATE'] = pd.to_datetime(df2['TRN_DATE'], errors='coerce')
     df2['TRN_DATE_ONLY'] = df2['TRN_DATE'].dt.date
     first_touch = df2.dropna(subset=['TRN_DATE']).groupby(['STORE_NAME','TRN_DATE_ONLY','CUST_CODE'], as_index=False)['TRN_DATE'].min()
-    first_touch['TIME_INTERVAL'] = floor_time_bucket(first_touch['TRN_DATE'])
+    first_touch['TIME_INTERVAL'] = first_touch['TRN_DATE'].dt.floor('30T')
     first_touch['TIME_ONLY'] = first_touch['TIME_INTERVAL'].dt.time
     counts = first_touch.groupby(['STORE_NAME','TIME_ONLY'])['CUST_CODE'].nunique().reset_index(name='RECEIPT_COUNT')
     pivot = counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='RECEIPT_COUNT').fillna(0)
@@ -241,14 +362,11 @@ def customer_traffic_storewise(df):
     fig = px.imshow(z, x=x, y=y, labels=dict(x="Time Interval (30 min)", y="Store Name", color="Receipts"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
-
-    # Summary: total receipts and average receipts per 30-min slot
-    total_receipts = pivot.sum(axis=1).reset_index()
-    avg_per_slot = pivot.mean(axis=1).reset_index()
-    summary = total_receipts.merge(avg_per_slot, left_on='STORE_NAME', right_on='STORE_NAME')
-    summary.columns = ['STORE_NAME','Total_Receipts','Avg_Receipts_Per_Slot']
-    # Show totals row where Avg_Receipts_Per_Slot uses average (mean) and Total_Receipts uses sum
-    format_and_display(summary, numeric_cols=['Total_Receipts','Avg_Receipts_Per_Slot'], index_col='STORE_NAME', total_label='TOTAL', avg_cols=['Avg_Receipts_Per_Slot'])
+    # provide totals table per store
+    pivot_totals = pivot.sum(axis=1).reset_index().rename(columns={0:'Total_Receipts'}) if isinstance(pivot.sum(axis=1), pd.Series) else pd.DataFrame()
+    pivot_totals = pivot.sum(axis=1).reset_index()
+    pivot_totals.columns = ['STORE_NAME','Total_Receipts']
+    format_and_display(pivot_totals, numeric_cols=['Total_Receipts'], index_col='STORE_NAME', total_label='TOTAL')
 
 def active_tills_during_day(df):
     st.header("Active Tills During the Day (30-min slots)")
@@ -257,7 +375,7 @@ def active_tills_during_day(df):
         return
     d = df.copy()
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-    d['TIME_INTERVAL'] = floor_time_bucket(d['TRN_DATE'])
+    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
     d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
     till_counts = d.groupby(['STORE_NAME','TIME_ONLY'])['Till_Code'].nunique().reset_index(name='UNIQUE_TILLS')
     pivot = till_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='UNIQUE_TILLS').fillna(0)
@@ -271,14 +389,10 @@ def active_tills_during_day(df):
     fig = px.imshow(z, x=x, y=y, labels=dict(x="Time Interval (30 min)", y="Store Name", color="Unique Tills"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
-
-    # Summary: average active tills per slot and max active tills
-    avg_active = pivot.mean(axis=1).reset_index()
-    max_active = pivot.max(axis=1).reset_index()
-    summary = avg_active.merge(max_active, left_on='STORE_NAME', right_on='STORE_NAME')
-    summary.columns = ['STORE_NAME','Avg_Active_Tills_Per_Slot','Max_Active_Tills']
-    # show totals row with Avg_Active_Tills_Per_Slot averaged, Max_Active_Tills summed? We'll show Avg for avg col and Max as max of max (use mean for totals here)
-    format_and_display(summary, numeric_cols=['Avg_Active_Tills_Per_Slot','Max_Active_Tills'], index_col='STORE_NAME', total_label='TOTAL', avg_cols=['Avg_Active_Tills_Per_Slot'])
+    # Totals per store
+    pivot_totals = pivot.max(axis=1).reset_index()
+    pivot_totals.columns = ['STORE_NAME','MAX_ACTIVE_TILLS']
+    format_and_display(pivot_totals, numeric_cols=['MAX_ACTIVE_TILLS'], index_col='STORE_NAME', total_label='TOTAL')
 
 def avg_customers_per_till(df):
     st.header("Average Customers Served per Till (30-min slots)")
@@ -294,10 +408,10 @@ def avg_customers_per_till(df):
         d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
     d['TRN_DATE_ONLY'] = d['TRN_DATE'].dt.date
     first_touch = d.groupby(['STORE_NAME','TRN_DATE_ONLY','CUST_CODE'], as_index=False)['TRN_DATE'].min()
-    first_touch['TIME_INTERVAL'] = floor_time_bucket(first_touch['TRN_DATE'])
+    first_touch['TIME_INTERVAL'] = first_touch['TRN_DATE'].dt.floor('30T')
     first_touch['TIME_ONLY'] = first_touch['TIME_INTERVAL'].dt.time
     cust_counts = first_touch.groupby(['STORE_NAME','TIME_ONLY'])['CUST_CODE'].nunique().reset_index(name='CUSTOMERS')
-    d['TIME_INTERVAL'] = floor_time_bucket(d['TRN_DATE'])
+    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
     d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
     d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
     till_counts = d.groupby(['STORE_NAME','TIME_ONLY'])['Till_Code'].nunique().reset_index(name='TILLS')
@@ -318,13 +432,9 @@ def avg_customers_per_till(df):
     fig = px.imshow(z, x=x, y=y, labels=dict(x="Time Interval (30 min)", y="Store Name", color="Customers per Till"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
-
-    # Summary: average customers per till per slot and max
-    avg_ratio = ratio.mean(axis=1).reset_index()
-    max_ratio = ratio.max(axis=1).reset_index()
-    summary = avg_ratio.merge(max_ratio, left_on='STORE_NAME', right_on='STORE_NAME')
-    summary.columns = ['STORE_NAME','Avg_Customers_Per_Till_Per_Slot','Max_Customers_Per_Till']
-    format_and_display(summary, numeric_cols=['Avg_Customers_Per_Till_Per_Slot','Max_Customers_Per_Till'], index_col='STORE_NAME', total_label='TOTAL', avg_cols=['Avg_Customers_Per_Till_Per_Slot'])
+    # Totals: max ratio per store
+    pivot_totals = pd.DataFrame({'STORE_NAME': ratio.index, 'MAX_CUSTOMERS_PER_TILL': ratio.max(axis=1).astype(int)})
+    format_and_display(pivot_totals, numeric_cols=['MAX_CUSTOMERS_PER_TILL'], index_col='STORE_NAME', total_label='TOTAL')
 
 def store_customer_traffic_storewise(df):
     st.header("Store Customer Traffic (per Department)")
@@ -336,7 +446,7 @@ def store_customer_traffic_storewise(df):
     d = df[df['STORE_NAME']==branch].copy()
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
     d = d.dropna(subset=['TRN_DATE'])
-    d['TIME_INTERVAL'] = floor_time_bucket(d['TRN_DATE'])
+    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
     d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
     tmp = d.groupby(['DEPARTMENT','TIME_ONLY'])['CUST_CODE'].nunique().reset_index(name='Unique_Customers')
     pivot = tmp.pivot(index='DEPARTMENT', columns='TIME_ONLY', values='Unique_Customers').fillna(0)
@@ -350,13 +460,10 @@ def store_customer_traffic_storewise(df):
     fig = px.imshow(z, x=x, y=y, labels=dict(x="Time of Day", y="Department", color="Unique Customers"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
-
-    # Totals per department: total customers and average per slot
+    # Totals per department
     totals = pivot.sum(axis=1).reset_index()
-    avg_per_slot = pivot.mean(axis=1).reset_index()
-    totals_df = totals.merge(avg_per_slot, left_on='DEPARTMENT', right_on='DEPARTMENT')
-    totals_df.columns = ['DEPARTMENT','Total_Customers','Avg_Customers_Per_Slot']
-    format_and_display(totals_df, numeric_cols=['Total_Customers','Avg_Customers_Per_Slot'], index_col='DEPARTMENT', total_label='TOTAL', avg_cols=['Avg_Customers_Per_Slot'])
+    totals.columns = ['DEPARTMENT','TOTAL_CUSTOMERS']
+    format_and_display(totals, numeric_cols=['TOTAL_CUSTOMERS'], index_col='DEPARTMENT', total_label='TOTAL')
 
 def customer_traffic_departmentwise(df):
     st.header("Customer Traffic — Departmentwise (branch selectable)")
@@ -384,14 +491,14 @@ def cashiers_performance(df):
     fig = px.bar(dfb, x='Avg_Serve_Min', y='CASHIER-COUNT', orientation='h', text='Label', color='Avg_Serve_Min', color_continuous_scale='Blues', title=f"Avg Serving Time per Cashier — {branch}")
     fig.update_layout(coloraxis_showscale=False, height=max(400, 25*len(dfb)))
     st.plotly_chart(fig, use_container_width=True)
-    # Totals: Avg_Serve_Min should be averaged in totals row, Customers_Served sum
-    format_and_display(dfb[['CASHIER-COUNT','Avg_Serve_Min','Customers_Served']], numeric_cols=['Avg_Serve_Min','Customers_Served'], index_col='CASHIER-COUNT', total_label='TOTAL', avg_cols=['Avg_Serve_Min'])
+    # Show formatted table with totals
+    format_and_display(dfb[['CASHIER-COUNT','Avg_Serve_Min','Customers_Served']], numeric_cols=['Avg_Serve_Min','Customers_Served'], index_col='CASHIER-COUNT', total_label='TOTAL')
 
 def till_usage(df):
     st.header("Till Usage")
     d = df.copy()
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-    d['TIME_SLOT'] = floor_time_bucket(d['TRN_DATE'])
+    d['TIME_SLOT'] = d['TRN_DATE'].dt.floor('30T')
     d['TIME_ONLY'] = d['TIME_SLOT'].dt.time
     if 'Till_Code' not in d.columns:
         d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
@@ -407,12 +514,10 @@ def till_usage(df):
     fig = px.imshow(pivot.values, x=x, y=pivot.index, labels=dict(x="Time of Day (30-min slot)", y="Till", color="Receipts"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
-    # Totals: average receipts per slot and total receipts
-    avg_receipts = pivot.mean(axis=1).reset_index()
-    total_receipts = pivot.sum(axis=1).reset_index()
-    totals = avg_receipts.merge(total_receipts, left_on='Till_Code', right_on='Till_Code')
-    totals.columns = ['Till_Code','Avg_Receipts_Per_Slot','Total_Receipts']
-    format_and_display(totals, numeric_cols=['Avg_Receipts_Per_Slot','Total_Receipts'], index_col='Till_Code', total_label='TOTAL', avg_cols=['Avg_Receipts_Per_Slot'])
+    # Totals per till
+    totals = pivot.sum(axis=1).reset_index()
+    totals.columns = ['Till_Code','Total_Receipts']
+    format_and_display(totals, numeric_cols=['Total_Receipts'], index_col='Till_Code', total_label='TOTAL')
 
 def tax_compliance(df):
     st.header("Tax Compliance")
@@ -441,7 +546,7 @@ def tax_compliance(df):
     format_and_display(store_summary.reset_index(), numeric_cols=['Compliant','Non-Compliant','Total','Compliance_%'], index_col='STORE_NAME', total_label='TOTAL')
 
 # -----------------------
-# INSIGHTS implementations (no change to behavior, tables formatted)
+# INSIGHTS implementations (tables formatted)
 # -----------------------
 def customer_baskets_overview(df):
     st.header("Customer Baskets Overview")
@@ -621,6 +726,7 @@ def customer_loyalty_overview(df):
         return
     per_store = rc.groupby('STORE_NAME', as_index=False).agg(Baskets=('CUST_CODE','nunique'), Total_Value=('Basket_Value','sum'), First_Time=('First_Time','min'), Last_Time=('First_Time','max')).sort_values(['Baskets','Total_Value'], ascending=False)
     format_and_display(per_store, numeric_cols=['Baskets','Total_Value'], index_col='STORE_NAME', total_label='TOTAL')
+    # Receipt-level detail
     rc_disp = rc.copy()
     rc_disp['First_Time'] = rc_disp['First_Time'].dt.strftime('%Y-%m-%d %H:%M:%S')
     rc_disp = rc_disp.rename(columns={'CUST_CODE':'Receipt_No','Basket_Value':'Basket_Value_KSh'})
