@@ -1,15 +1,7 @@
 # Streamlit app converted from Colab notebook "Superdeck"
-# Updated: Precompute heavy aggregates on upload so switching sections is fast.
+# Updated: Added table formatting helper to append totals and format numeric columns with commas.
 # Usage:
 #   streamlit run app.py
-#
-# Key changes:
-# - Added preprocess_all(...) (cached) which computes and returns a dict of pre-aggregated DataFrames and pivot tables.
-# - Preprocessing runs immediately after data load (on upload or default file load) and results are stored in st.session_state['precomp'].
-# - Display functions use the precomputed results when available, avoiding repeated heavy computations when switching sections.
-# - A "Rebuild precomputation" button is available in the sidebar to force recomputation (cache bust).
-#
-# Note: This file retains the existing UI and visuals while improving interactivity by precomputing heavy groupbys.
 
 import streamlit as st
 import pandas as pd
@@ -18,15 +10,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import textwrap
 from datetime import timedelta
-import time
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
-
-# -----------------------
-# Configuration
-# -----------------------
-# Single place to change the time bucket (minutes)
-TIME_BUCKET_MIN = 30
 
 # -----------------------
 # Utility / Data Loading
@@ -38,10 +23,6 @@ def load_csv(path):
 def smart_load():
     st.sidebar.markdown("### Upload data (CSV) or use default")
     uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=['csv'])
-    rebuild = st.sidebar.button("Rebuild precomputation")  # force precompute
-    # Use session_state flags to control rebuild
-    if rebuild:
-        st.session_state['cache_bust'] = time.time()
     if uploaded is not None:
         df = pd.read_csv(uploaded, on_bad_lines='skip', low_memory=False)
         st.sidebar.success("Loaded uploaded CSV")
@@ -93,199 +74,13 @@ def clean_common(df):
     return df
 
 # -----------------------
-# Precompute heavy aggregations (cached)
-# -----------------------
-@st.cache_data
-def preprocess_all(df_serializable, cache_bust=None):
-    """
-    Precompute heavy groupbys & pivots. This function is cached by Streamlit.
-    - df_serializable: a DataFrame (Streamlit will hash it). If you want to bust cache, pass cache_bust value.
-    Returns a dict of DataFrames and small derived objects.
-    """
-    df = df_serializable.copy()
-    # ensure types
-    if 'TRN_DATE' in df.columns:
-        df['TRN_DATE'] = pd.to_datetime(df['TRN_DATE'], errors='coerce')
-    # Basic sales aggs
-    result = {}
-
-    try:
-        if 'SALES_CHANNEL_L1' in df.columns and 'NET_SALES' in df.columns:
-            result['sales_channel_l1'] = df.groupby('SALES_CHANNEL_L1', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
-        else:
-            result['sales_channel_l1'] = pd.DataFrame()
-
-        if 'SALES_CHANNEL_L2' in df.columns and 'NET_SALES' in df.columns:
-            result['sales_channel_l2'] = df.groupby('SALES_CHANNEL_L2', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
-        else:
-            result['sales_channel_l2'] = pd.DataFrame()
-
-        if 'SHIFT' in df.columns and 'NET_SALES' in df.columns:
-            result['shift_sales'] = df.groupby('SHIFT', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
-        else:
-            result['shift_sales'] = pd.DataFrame()
-
-        # Store sales summary
-        if 'STORE_NAME' in df.columns:
-            df['NET_SALES'] = pd.to_numeric(df.get('NET_SALES', 0), errors='coerce').fillna(0)
-            df['VAT_AMT'] = pd.to_numeric(df.get('VAT_AMT', 0), errors='coerce').fillna(0)
-            df['GROSS_SALES'] = df['NET_SALES'] + df['VAT_AMT']
-            sales_summary = df.groupby('STORE_NAME', as_index=False)[['NET_SALES','GROSS_SALES']].sum()
-            sales_summary['% Contribution'] = (sales_summary['GROSS_SALES'] / sales_summary['GROSS_SALES'].sum() * 100).round(2)
-            if 'CUST_CODE' in df.columns:
-                cust_counts = df.groupby('STORE_NAME')['CUST_CODE'].nunique().reset_index().rename(columns={'CUST_CODE':'Customer Numbers'})
-                sales_summary = sales_summary.merge(cust_counts, on='STORE_NAME', how='left')
-            result['store_sales_summary'] = sales_summary.sort_values('GROSS_SALES', ascending=False)
-        else:
-            result['store_sales_summary'] = pd.DataFrame()
-
-        # Store-channel share (for 2nd highest channel logic)
-        if all(col in df.columns for col in ['STORE_NAME','SALES_CHANNEL_L1','NET_SALES']):
-            store_chan = df.groupby(['STORE_NAME','SALES_CHANNEL_L1'], as_index=False)['NET_SALES'].sum()
-            store_chan['STORE_TOTAL'] = store_chan.groupby('STORE_NAME')['NET_SALES'].transform('sum')
-            store_chan['PCT'] = 100 * store_chan['NET_SALES'] / store_chan['STORE_TOTAL']
-            store_chan = store_chan.sort_values(['STORE_NAME','PCT'], ascending=[True, False])
-            store_chan['RANK'] = store_chan.groupby('STORE_NAME').cumcount() + 1
-            second = store_chan[store_chan['RANK']==2][['STORE_NAME','SALES_CHANNEL_L1','PCT']].rename(columns={'SALES_CHANNEL_L1':'SECOND_CHANNEL','PCT':'SECOND_PCT'})
-            all_stores = store_chan['STORE_NAME'].drop_duplicates()
-            missing_stores = set(all_stores) - set(second['STORE_NAME'])
-            if missing_stores:
-                add = pd.DataFrame({'STORE_NAME':list(missing_stores),'SECOND_CHANNEL':['(None)']*len(missing_stores),'SECOND_PCT':[0.0]*len(missing_stores)})
-                second = pd.concat([second, add], ignore_index=True)
-            result['second_channel_share'] = second.sort_values('SECOND_PCT', ascending=False)
-        else:
-            result['second_channel_share'] = pd.DataFrame()
-
-        # Customer traffic - first touch per receipt (30-min bucket)
-        if 'TRN_DATE' in df.columns and 'CUST_CODE' in df.columns and 'STORE_NAME' in df.columns:
-            ft = df.dropna(subset=['TRN_DATE']).groupby(['STORE_NAME', df['TRN_DATE'].dt.date, 'CUST_CODE'], as_index=False)['TRN_DATE'].min()
-            ft = ft.rename(columns={'TRN_DATE': 'FIRST_TRN'})
-            ft['TIME_INTERVAL'] = ft['FIRST_TRN'].dt.floor(f'{TIME_BUCKET_MIN}T')
-            ft['TIME_ONLY'] = ft['TIME_INTERVAL'].dt.time
-            counts = ft.groupby(['STORE_NAME','TIME_ONLY'])['CUST_CODE'].nunique().reset_index(name='RECEIPT_COUNT')
-            # pivot for heatmap
-            pivot_counts = counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='RECEIPT_COUNT').fillna(0)
-            result['customer_traffic_counts'] = pivot_counts
-        else:
-            result['customer_traffic_counts'] = pd.DataFrame()
-
-        # Till activity (unique tills per slot)
-        if 'TRN_DATE' in df.columns and 'Till_Code' in df.columns and 'STORE_NAME' in df.columns:
-            d = df.copy()
-            d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor(f'{TIME_BUCKET_MIN}T')
-            d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
-            till_counts = d.groupby(['STORE_NAME','TIME_ONLY'])['Till_Code'].nunique().reset_index(name='UNIQUE_TILLS')
-            pivot_tills = till_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='UNIQUE_TILLS').fillna(0)
-            result['till_activity'] = pivot_tills
-        else:
-            result['till_activity'] = pd.DataFrame()
-
-        # Average customers per till
-        if 'TRN_DATE' in df.columns:
-            d = df.copy()
-            for c in ['STORE_CODE','TILL','SESSION','RCT']:
-                if c in d.columns:
-                    d[c] = d[c].astype(str).fillna('').str.strip()
-            if 'CUST_CODE' not in d.columns and all(col in d.columns for col in ['STORE_CODE','TILL','SESSION','RCT']):
-                d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
-            first_touch = d.groupby(['STORE_NAME', d['TRN_DATE'].dt.date, 'CUST_CODE'], as_index=False)['TRN_DATE'].min().rename(columns={'TRN_DATE':'FIRST_TRN'})
-            first_touch['TIME_INTERVAL'] = first_touch['FIRST_TRN'].dt.floor(f'{TIME_BUCKET_MIN}T')
-            first_touch['TIME_ONLY'] = first_touch['TIME_INTERVAL'].dt.time
-            cust_counts = first_touch.groupby(['STORE_NAME','TIME_ONLY'])['CUST_CODE'].nunique().reset_index(name='CUSTOMERS')
-            d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor(f'{TIME_BUCKET_MIN}T')
-            d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
-            if 'Till_Code' not in d.columns and 'TILL' in d.columns and 'STORE_CODE' in d.columns:
-                d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
-            till_counts = d.groupby(['STORE_NAME','TIME_ONLY'])['Till_Code'].nunique().reset_index(name='TILLS')
-            cust_pivot = cust_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='CUSTOMERS').fillna(0)
-            till_pivot = till_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='TILLS').fillna(0)
-            # align columns
-            cols = sorted(set(cust_pivot.columns) | set(till_pivot.columns))
-            cust_pivot = cust_pivot.reindex(columns=cols).fillna(0)
-            till_pivot = till_pivot.reindex(columns=cols).fillna(0)
-            ratio = cust_pivot / till_pivot.replace(0, np.nan)
-            ratio = np.ceil(ratio.fillna(0)).astype(int)
-            result['customers_per_till_ratio'] = ratio
-        else:
-            result['customers_per_till_ratio'] = pd.DataFrame()
-
-        # Cashier performance
-        if all(c in df.columns for c in ['TRN_DATE','CUST_CODE','CASHIER','STORE_NAME']):
-            d = df.copy()
-            d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-            receipt_duration = d.groupby(['STORE_NAME','CUST_CODE'], as_index=False).agg(Start_Time=('TRN_DATE','min'), End_Time=('TRN_DATE','max'))
-            receipt_duration['Duration_Sec'] = (receipt_duration['End_Time'] - receipt_duration['Start_Time']).dt.total_seconds().fillna(0)
-            merged = d.merge(receipt_duration[['STORE_NAME','CUST_CODE','Duration_Sec']], on=['STORE_NAME','CUST_CODE'], how='left')
-            cashier_summary = merged.groupby(['STORE_NAME','CASHIER'], as_index=False).agg(Avg_Duration_Sec=('Duration_Sec','mean'), Customers_Served=('CUST_CODE','nunique'))
-            cashier_summary['Avg_Serve_Min'] = (cashier_summary['Avg_Duration_Sec']/60).round(1)
-            result['cashier_summary'] = cashier_summary
-        else:
-            result['cashier_summary'] = pd.DataFrame()
-
-        # Pricing / multi-price detection
-        if all(c in df.columns for c in ['TRN_DATE','STORE_NAME','ITEM_CODE','ITEM_NAME','QTY','SP_PRE_VAT']):
-            d = df.copy()
-            d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-            d['DATE'] = d['TRN_DATE'].dt.date
-            d['SP_PRE_VAT'] = pd.to_numeric(d['SP_PRE_VAT'].astype(str).str.replace(',','',regex=False), errors='coerce').fillna(0)
-            grp = d.groupby(['STORE_NAME','DATE','ITEM_CODE','ITEM_NAME'], as_index=False).agg(Num_Prices=('SP_PRE_VAT', lambda s: s.dropna().nunique()), Price_Min=('SP_PRE_VAT','min'), Price_Max=('SP_PRE_VAT','max'), Total_QTY=('QTY','sum'))
-            grp['Price_Spread'] = grp['Price_Max'] - grp['Price_Min']
-            multi_price = grp[(grp['Num_Prices']>1) & (grp['Price_Spread']>0)].copy()
-            if not multi_price.empty:
-                multi_price['Diff_Value'] = multi_price['Total_QTY'] * multi_price['Price_Spread']
-                summary = multi_price.groupby('STORE_NAME', as_index=False).agg(Items_with_MultiPrice=('ITEM_CODE','nunique'), Total_Diff_Value=('Diff_Value','sum'), Avg_Spread=('Price_Spread','mean'), Max_Spread=('Price_Spread','max'))
-            else:
-                summary = pd.DataFrame()
-            result['pricing_multi'] = summary
-        else:
-            result['pricing_multi'] = pd.DataFrame()
-
-        # Supplier contribution
-        if 'SUPPLIER_NAME' in df.columns and 'NET_SALES' in df.columns:
-            result['supplier_contribution'] = df.groupby('SUPPLIER_NAME', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
-        else:
-            result['supplier_contribution'] = pd.DataFrame()
-
-        # Refunds (negative receipts)
-        if 'NET_SALES' in df.columns:
-            d = df.copy()
-            d['NET_SALES'] = pd.to_numeric(d['NET_SALES'].astype(str).str.replace(',','',regex=False), errors='coerce').fillna(0)
-            neg = d[d['NET_SALES']<0]
-            if not neg.empty:
-                if 'CAP_CUSTOMER_CODE' in neg.columns:
-                    neg['Sale_Type'] = np.where(neg['CAP_CUSTOMER_CODE'].str.replace('nan','').str.strip().astype(bool), 'On_account sales', 'General sales')
-                else:
-                    neg['Sale_Type'] = 'General sales'
-                summary = neg.groupby(['STORE_NAME','Sale_Type'], as_index=False).agg(Total_Neg_Value=('NET_SALES','sum'), Total_Count=('CUST_CODE','nunique'))
-            else:
-                summary = pd.DataFrame()
-            result['refunds_summary'] = summary
-        else:
-            result['refunds_summary'] = pd.DataFrame()
-
-        # Baskets / top items
-        if all(c in df.columns for c in ['ITEM_NAME','CUST_CODE']):
-            d = df.copy()
-            basket_count = d.groupby('ITEM_NAME')['CUST_CODE'].nunique().rename('Count_of_Baskets')
-            agg_data = d.groupby('ITEM_NAME')[['QTY','NET_SALES']].sum()
-            item_summary = basket_count.to_frame().join(agg_data).reset_index()
-            result['item_baskets'] = item_summary
-        else:
-            result['item_baskets'] = pd.DataFrame()
-    except Exception as e:
-        # If preprocessing fails, return what we have and log
-        st.error(f"Preprocessing error: {e}")
-    return result
-
-# -----------------------
 # Table formatting helper
 # -----------------------
-def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index_col: str | None = None, total_label: str = 'TOTAL', avg_cols: list | None = None):
+def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index_col: str | None = None, total_label: str = 'TOTAL'):
     """
     Append a totals row (summing numeric columns) to df and format numeric columns with commas.
     - numeric_cols: list of column names to treat as numeric. If None, autodetect numeric dtypes.
     - index_col: if given, place the total_label in that column (or the first column if missing).
-    - avg_cols: list of numeric cols to show mean (average) in totals row instead of sum.
     """
     if df is None or df.empty:
         st.dataframe(df)
@@ -297,18 +92,12 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index
     if numeric_cols is None:
         numeric_cols = list(df_display.select_dtypes(include=[np.number]).columns)
 
-    if avg_cols is None:
-        avg_cols = []
-
     # Compute totals row
     totals = {}
     for col in df_display.columns:
         if col in numeric_cols:
             try:
-                if col in avg_cols:
-                    totals[col] = df_display[col].astype(float).mean()
-                else:
-                    totals[col] = df_display[col].astype(float).sum()
+                totals[col] = df_display[col].astype(float).sum()
             except Exception:
                 totals[col] = ''
         else:
@@ -332,18 +121,15 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index
     # Formatting
     for col in numeric_cols:
         if col in appended.columns:
-            try:
-                series_vals = appended[col].dropna().astype(float)
-            except Exception:
-                series_vals = pd.Series(dtype=float)
-            is_int_like = False
-            if not series_vals.empty:
-                is_int_like = np.allclose(series_vals.fillna(0).round(0), series_vals.fillna(0))
+            # detect integer-like
+            series_vals = appended[col].dropna().astype(float)
+            is_int_like = np.allclose(series_vals.fillna(0).round(0), series_vals.fillna(0))
             if is_int_like:
                 appended[col] = appended[col].map(lambda v: f"{int(v):,}" if pd.notna(v) and str(v) != '' else '')
             else:
                 appended[col] = appended[col].map(lambda v: f"{v:,.2f}" if pd.notna(v) and str(v) != '' else '')
 
+    # Present with st.dataframe (strings will render nicely)
     st.dataframe(appended, use_container_width=True)
 
 # -----------------------
@@ -362,6 +148,7 @@ def donut_from_agg(df_agg, label_col, value_col, title, hole=0.55, colors=None, 
     # compute pct for labels
     s = sum(vals) if sum(vals) != 0 else 1
     legend_labels = [f"{lab} ({100*val/s:.1f}% | {val/1_000_000:.1f} M)" if value_is_millions else f"{lab} ({100*val/s:.1f}%)" for lab,val in zip(labels, vals)]
+    # build marker dict only if needed; Pie expects 'colors' not 'color' for marker
     marker = dict(line=dict(color='white', width=1))
     if colors:
         marker['colors'] = colors
@@ -372,33 +159,26 @@ def donut_from_agg(df_agg, label_col, value_col, title, hole=0.55, colors=None, 
     return fig
 
 # -----------------------
-# Display functions - use precomputed results when available
+# SALES section implementations
 # -----------------------
 def sales_global_overview(df):
     st.header("Global sales Overview")
-    pre = st.session_state.get('precomp', {})
-    if 'sales_channel_l1' in pre and not pre['sales_channel_l1'].empty:
-        g = pre['sales_channel_l1']
-    else:
-        if 'SALES_CHANNEL_L1' not in df.columns or 'NET_SALES' not in df.columns:
-            st.warning("Missing SALES_CHANNEL_L1 or NET_SALES")
-            return
-        g = df.groupby('SALES_CHANNEL_L1', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
+    if 'SALES_CHANNEL_L1' not in df.columns or 'NET_SALES' not in df.columns:
+        st.warning("Missing SALES_CHANNEL_L1 or NET_SALES")
+        return
+    g = df.groupby('SALES_CHANNEL_L1', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
     g['NET_SALES_M'] = g['NET_SALES'] / 1_000_000
     fig = donut_from_agg(g, 'SALES_CHANNEL_L1', 'NET_SALES', "<b>SALES CHANNEL TYPE — Global Overview</b>", hole=0.65, value_is_millions=True)
     st.plotly_chart(fig, use_container_width=True)
+    # Also show table with totals
     format_and_display(g[['SALES_CHANNEL_L1','NET_SALES']], numeric_cols=['NET_SALES'], index_col='SALES_CHANNEL_L1', total_label='TOTAL')
 
 def sales_by_channel_l2(df):
     st.header("Global Net Sales Distribution by Sales Channel")
-    pre = st.session_state.get('precomp', {})
-    if 'sales_channel_l2' in pre and not pre['sales_channel_l2'].empty:
-        g = pre['sales_channel_l2']
-    else:
-        if 'SALES_CHANNEL_L2' not in df.columns or 'NET_SALES' not in df.columns:
-            st.warning("Missing SALES_CHANNEL_L2 or NET_SALES")
-            return
-        g = df.groupby('SALES_CHANNEL_L2', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
+    if 'SALES_CHANNEL_L2' not in df.columns or 'NET_SALES' not in df.columns:
+        st.warning("Missing SALES_CHANNEL_L2 or NET_SALES")
+        return
+    g = df.groupby('SALES_CHANNEL_L2', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
     g['NET_SALES_M'] = g['NET_SALES'] / 1_000_000
     fig = donut_from_agg(g, 'SALES_CHANNEL_L2', 'NET_SALES', "<b>Global Net Sales Distribution by Sales Mode (SALES_CHANNEL_L2)</b>", hole=0.65, value_is_millions=True)
     st.plotly_chart(fig, use_container_width=True)
@@ -406,27 +186,21 @@ def sales_by_channel_l2(df):
 
 def sales_by_shift(df):
     st.header("Global Net Sales Distribution by SHIFT")
-    pre = st.session_state.get('precomp', {})
-    if 'shift_sales' in pre and not pre['shift_sales'].empty:
-        g = pre['shift_sales']
-    else:
-        if 'SHIFT' not in df.columns or 'NET_SALES' not in df.columns:
-            st.warning("Missing SHIFT or NET_SALES")
-            return
-        g = df.groupby('SHIFT', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
+    if 'SHIFT' not in df.columns or 'NET_SALES' not in df.columns:
+        st.warning("Missing SHIFT or NET_SALES")
+        return
+    g = df.groupby('SHIFT', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
     g['PCT'] = 100 * g['NET_SALES'] / g['NET_SALES'].sum()
     labels = [f"{row['SHIFT']} ({row['PCT']:.1f}%)" for _,row in g.iterrows()]
     fig = go.Figure(data=[go.Pie(labels=labels, values=g['NET_SALES'], hole=0.65)])
     fig.update_layout(title="<b>Global Net Sales Distribution by SHIFT</b>")
     st.plotly_chart(fig, use_container_width=True)
+    # Table with totals
     format_and_display(g[['SHIFT','NET_SALES','PCT']], numeric_cols=['NET_SALES','PCT'], index_col='SHIFT', total_label='TOTAL')
 
 def night_vs_day_ratio(df):
     st.header("Night vs Day Shift Sales Ratio — Stores with Night Shifts")
-    pre = st.session_state.get('precomp', {})
-    if 'second_channel_share' in pre:
-        # second_channel_share doesn't map directly; still compute pivot from precomputed data if available
-        pass
+    # Build store-level percent Night/Day
     if 'SHIFT' not in df.columns or 'STORE_NAME' not in df.columns:
         st.warning("Missing SHIFT or STORE_NAME")
         return
@@ -476,27 +250,23 @@ def global_day_vs_night(df):
 
 def second_highest_channel_share(df):
     st.header("2nd-Highest Channel Share")
-    pre = st.session_state.get('precomp', {})
-    if 'second_channel_share' in pre and not pre['second_channel_share'].empty:
-        second_sorted = pre['second_channel_share']
-    else:
-        if not all(col in df.columns for col in ['STORE_NAME','SALES_CHANNEL_L1','NET_SALES']):
-            st.warning("Missing columns required")
-            return
-        data = df.copy()
-        data['NET_SALES'] = pd.to_numeric(data['NET_SALES'], errors='coerce').fillna(0)
-        store_chan = data.groupby(['STORE_NAME','SALES_CHANNEL_L1'], as_index=False)['NET_SALES'].sum()
-        store_tot = store_chan.groupby('STORE_NAME')['NET_SALES'].transform('sum')
-        store_chan['PCT'] = 100 * store_chan['NET_SALES'] / store_tot
-        store_chan = store_chan.sort_values(['STORE_NAME','PCT'], ascending=[True, False])
-        store_chan['RANK'] = store_chan.groupby('STORE_NAME').cumcount() + 1
-        second = store_chan[store_chan['RANK']==2][['STORE_NAME','SALES_CHANNEL_L1','PCT']].rename(columns={'SALES_CHANNEL_L1':'SECOND_CHANNEL','PCT':'SECOND_PCT'})
-        all_stores = store_chan['STORE_NAME'].drop_duplicates()
-        missing_stores = set(all_stores) - set(second['STORE_NAME'])
-        if missing_stores:
-            add = pd.DataFrame({'STORE_NAME':list(missing_stores),'SECOND_CHANNEL':['(None)']*len(missing_stores),'SECOND_PCT':[0.0]*len(missing_stores)})
-            second = pd.concat([second, add], ignore_index=True)
-        second_sorted = second.sort_values('SECOND_PCT', ascending=False)
+    if not all(col in df.columns for col in ['STORE_NAME','SALES_CHANNEL_L1','NET_SALES']):
+        st.warning("Missing columns required")
+        return
+    data = df.copy()
+    data['NET_SALES'] = pd.to_numeric(data['NET_SALES'], errors='coerce').fillna(0)
+    store_chan = data.groupby(['STORE_NAME','SALES_CHANNEL_L1'], as_index=False)['NET_SALES'].sum()
+    store_tot = store_chan.groupby('STORE_NAME')['NET_SALES'].transform('sum')
+    store_chan['PCT'] = 100 * store_chan['NET_SALES'] / store_tot
+    store_chan = store_chan.sort_values(['STORE_NAME','PCT'], ascending=[True, False])
+    store_chan['RANK'] = store_chan.groupby('STORE_NAME').cumcount() + 1
+    second = store_chan[store_chan['RANK']==2][['STORE_NAME','SALES_CHANNEL_L1','PCT']].rename(columns={'SALES_CHANNEL_L1':'SECOND_CHANNEL','PCT':'SECOND_PCT'})
+    all_stores = store_chan['STORE_NAME'].drop_duplicates()
+    missing_stores = set(all_stores) - set(second['STORE_NAME'])
+    if missing_stores:
+        add = pd.DataFrame({'STORE_NAME':list(missing_stores),'SECOND_CHANNEL':['(None)']*len(missing_stores),'SECOND_PCT':[0.0]*len(missing_stores)})
+        second = pd.concat([second, add], ignore_index=True)
+    second_sorted = second.sort_values('SECOND_PCT', ascending=False)
     top_n = st.sidebar.slider("Top N", min_value=10, max_value=100, value=30)
     top_ = second_sorted.head(top_n).copy()
     if top_.empty:
@@ -517,30 +287,25 @@ def second_highest_channel_share(df):
                       height=max(500, 24*len(top_)),
                       annotations=annotations, yaxis=dict(autorange='reversed'))
     st.plotly_chart(fig, use_container_width=True)
+    # show table with totals
     format_and_display(second_sorted[['STORE_NAME','SECOND_CHANNEL','SECOND_PCT']], numeric_cols=['SECOND_PCT'], index_col='STORE_NAME', total_label='TOTAL')
 
 def bottom_30_2nd_highest(df):
     st.header("Bottom 30 — 2nd Highest Channel")
-    pre = st.session_state.get('precomp', {})
-    if 'second_channel_share' in pre and not pre['second_channel_share'].empty:
-        second = pre['second_channel_share']
-    else:
-        # compute same as in second_highest_channel_share
-        if not all(col in df.columns for col in ['STORE_NAME','SALES_CHANNEL_L1','NET_SALES']):
-            st.warning("Missing required columns")
-            return
-        data = df.copy()
-        data['NET_SALES'] = pd.to_numeric(data['NET_SALES'], errors='coerce').fillna(0)
-        store_chan = data.groupby(['STORE_NAME','SALES_CHANNEL_L1'], as_index=False)['NET_SALES'].sum()
-        store_tot = store_chan.groupby('STORE_NAME')['NET_SALES'].transform('sum')
-        store_chan['PCT'] = 100 * store_chan['NET_SALES'] / store_tot
-        store_chan = store_chan.sort_values(['STORE_NAME','PCT'], ascending=[True, False])
-        store_chan['RANK'] = store_chan.groupby('STORE_NAME').cumcount() + 1
-        top_tbl = store_chan[store_chan['RANK']==1][['STORE_NAME','SALES_CHANNEL_L1','PCT']].rename(columns={'SALES_CHANNEL_L1':'TOP_CHANNEL','PCT':'TOP_PCT'})
-        second_tbl = store_chan[store_chan['RANK']==2][['STORE_NAME','SALES_CHANNEL_L1','PCT']].rename(columns={'SALES_CHANNEL_L1':'SECOND_CHANNEL','PCT':'SECOND_PCT'})
-        ranking = pd.merge(top_tbl, second_tbl, on='STORE_NAME', how='left').fillna({'SECOND_CHANNEL':'(None)','SECOND_PCT':0})
-        second = ranking
-    bottom_30 = second.sort_values('SECOND_PCT', ascending=True).head(30)
+    if not all(col in df.columns for col in ['STORE_NAME','SALES_CHANNEL_L1','NET_SALES']):
+        st.warning("Missing required columns")
+        return
+    data = df.copy()
+    data['NET_SALES'] = pd.to_numeric(data['NET_SALES'], errors='coerce').fillna(0)
+    store_chan = data.groupby(['STORE_NAME','SALES_CHANNEL_L1'], as_index=False)['NET_SALES'].sum()
+    store_tot = store_chan.groupby('STORE_NAME')['NET_SALES'].transform('sum')
+    store_chan['PCT'] = 100 * store_chan['NET_SALES'] / store_tot
+    store_chan = store_chan.sort_values(['STORE_NAME','PCT'], ascending=[True, False])
+    store_chan['RANK'] = store_chan.groupby('STORE_NAME').cumcount() + 1
+    top_tbl = store_chan[store_chan['RANK']==1][['STORE_NAME','SALES_CHANNEL_L1','PCT']].rename(columns={'SALES_CHANNEL_L1':'TOP_CHANNEL','PCT':'TOP_PCT'})
+    second_tbl = store_chan[store_chan['RANK']==2][['STORE_NAME','SALES_CHANNEL_L1','PCT']].rename(columns={'SALES_CHANNEL_L1':'SECOND_CHANNEL','PCT':'SECOND_PCT'})
+    ranking = pd.merge(top_tbl, second_tbl, on='STORE_NAME', how='left').fillna({'SECOND_CHANNEL':'(None)','SECOND_PCT':0})
+    bottom_30 = ranking.sort_values('SECOND_PCT', ascending=True).head(30)
     if bottom_30.empty:
         st.info("No stores to display")
         return
@@ -556,43 +321,37 @@ def bottom_30_2nd_highest(df):
 
 def stores_sales_summary(df):
     st.header("Stores Sales Summary")
-    pre = st.session_state.get('precomp', {})
-    if 'store_sales_summary' in pre and not pre['store_sales_summary'].empty:
-        sales_summary = pre['store_sales_summary']
-    else:
-        if 'STORE_NAME' not in df.columns:
-            st.warning("Missing STORE_NAME")
-            return
-        df2 = df.copy()
-        df2['NET_SALES'] = pd.to_numeric(df2.get('NET_SALES', 0), errors='coerce').fillna(0)
-        df2['VAT_AMT'] = pd.to_numeric(df2.get('VAT_AMT', 0), errors='coerce').fillna(0)
-        df2['GROSS_SALES'] = df2['NET_SALES'] + df2['VAT_AMT']
-        sales_summary = df2.groupby('STORE_NAME', as_index=False)[['NET_SALES','GROSS_SALES']].sum().sort_values('GROSS_SALES', ascending=False)
-        sales_summary['% Contribution'] = (sales_summary['GROSS_SALES'] / sales_summary['GROSS_SALES'].sum() * 100).round(2)
-        if 'CUST_CODE' in df2.columns:
-            cust_counts = df2.groupby('STORE_NAME')['CUST_CODE'].nunique().reset_index().rename(columns={'CUST_CODE':'Customer Numbers'})
-            sales_summary = sales_summary.merge(cust_counts, on='STORE_NAME', how='left')
+    if 'STORE_NAME' not in df.columns:
+        st.warning("Missing STORE_NAME")
+        return
+    df2 = df.copy()
+    df2['NET_SALES'] = pd.to_numeric(df2.get('NET_SALES', 0), errors='coerce').fillna(0)
+    df2['VAT_AMT'] = pd.to_numeric(df2.get('VAT_AMT', 0), errors='coerce').fillna(0)
+    df2['GROSS_SALES'] = df2['NET_SALES'] + df2['VAT_AMT']
+    sales_summary = df2.groupby('STORE_NAME', as_index=False)[['NET_SALES','GROSS_SALES']].sum().sort_values('GROSS_SALES', ascending=False)
+    sales_summary['% Contribution'] = (sales_summary['GROSS_SALES'] / sales_summary['GROSS_SALES'].sum() * 100).round(2)
+    if 'CUST_CODE' in df2.columns:
+        cust_counts = df2.groupby('STORE_NAME')['CUST_CODE'].nunique().reset_index().rename(columns={'CUST_CODE':'Customer Numbers'})
+        sales_summary = sales_summary.merge(cust_counts, on='STORE_NAME', how='left')
+    # Format & totals display
     format_and_display(sales_summary[['STORE_NAME','NET_SALES','GROSS_SALES','% Contribution','Customer Numbers']], numeric_cols=['NET_SALES','GROSS_SALES','% Contribution','Customer Numbers'], index_col='STORE_NAME', total_label='TOTAL')
 
 # -----------------------
-# OPERATIONS implementations (use precomputed pivots where possible)
+# OPERATIONS implementations (tables formatted where used)
 # -----------------------
 def customer_traffic_storewise(df):
-    st.header(f"Customer Traffic Heatmap — Storewise ({TIME_BUCKET_MIN}-min slots)")
-    pre = st.session_state.get('precomp', {})
-    pivot = pre.get('customer_traffic_counts') if pre else None
-    if pivot is None or pivot.empty:
-        if 'TRN_DATE' not in df.columns or 'CUST_CODE' not in df.columns:
-            st.warning("Missing TRN_DATE or CUST_CODE")
-            return
-        df2 = df.copy()
-        df2['TRN_DATE'] = pd.to_datetime(df2['TRN_DATE'], errors='coerce')
-        df2['TRN_DATE_ONLY'] = df2['TRN_DATE'].dt.date
-        first_touch = df2.dropna(subset=['TRN_DATE']).groupby(['STORE_NAME','TRN_DATE_ONLY','CUST_CODE'], as_index=False)['TRN_DATE'].min()
-        first_touch['TIME_INTERVAL'] = first_touch['TRN_DATE'].dt.floor(f'{TIME_BUCKET_MIN}T')
-        first_touch['TIME_ONLY'] = first_touch['TIME_INTERVAL'].dt.time
-        counts = first_touch.groupby(['STORE_NAME','TIME_ONLY'])['CUST_CODE'].nunique().reset_index(name='RECEIPT_COUNT')
-        pivot = counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='RECEIPT_COUNT').fillna(0)
+    st.header("Customer Traffic Heatmap — Storewise (30-min slots)")
+    if 'TRN_DATE' not in df.columns or 'CUST_CODE' not in df.columns:
+        st.warning("Missing TRN_DATE or CUST_CODE")
+        return
+    df2 = df.copy()
+    df2['TRN_DATE'] = pd.to_datetime(df2['TRN_DATE'], errors='coerce')
+    df2['TRN_DATE_ONLY'] = df2['TRN_DATE'].dt.date
+    first_touch = df2.dropna(subset=['TRN_DATE']).groupby(['STORE_NAME','TRN_DATE_ONLY','CUST_CODE'], as_index=False)['TRN_DATE'].min()
+    first_touch['TIME_INTERVAL'] = first_touch['TRN_DATE'].dt.floor('30T')
+    first_touch['TIME_ONLY'] = first_touch['TIME_INTERVAL'].dt.time
+    counts = first_touch.groupby(['STORE_NAME','TIME_ONLY'])['CUST_CODE'].nunique().reset_index(name='RECEIPT_COUNT')
+    pivot = counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='RECEIPT_COUNT').fillna(0)
     if pivot.empty:
         st.info("No customer traffic data to display")
         return
@@ -600,28 +359,26 @@ def customer_traffic_storewise(df):
     z = pivot.values
     x = [t.strftime('%H:%M') for t in intervals]
     y = pivot.index.tolist()
-    fig = px.imshow(z, x=x, y=y, labels=dict(x=f"Time Interval ({TIME_BUCKET_MIN} min)", y="Store Name", color="Receipts"), text_auto=True)
+    fig = px.imshow(z, x=x, y=y, labels=dict(x="Time Interval (30 min)", y="Store Name", color="Receipts"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
-    # Totals per store (sum)
+    # provide totals table per store
+    pivot_totals = pivot.sum(axis=1).reset_index().rename(columns={0:'Total_Receipts'}) if isinstance(pivot.sum(axis=1), pd.Series) else pd.DataFrame()
     pivot_totals = pivot.sum(axis=1).reset_index()
     pivot_totals.columns = ['STORE_NAME','Total_Receipts']
     format_and_display(pivot_totals, numeric_cols=['Total_Receipts'], index_col='STORE_NAME', total_label='TOTAL')
 
 def active_tills_during_day(df):
-    st.header(f"Active Tills During the Day ({TIME_BUCKET_MIN}-min slots)")
-    pre = st.session_state.get('precomp', {})
-    pivot = pre.get('till_activity') if pre else None
-    if pivot is None or pivot.empty:
-        if 'TRN_DATE' not in df.columns or 'Till_Code' not in df.columns:
-            st.warning("Missing TRN_DATE or Till_Code")
-            return
-        d = df.copy()
-        d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-        d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor(f'{TIME_BUCKET_MIN}T')
-        d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
-        till_counts = d.groupby(['STORE_NAME','TIME_ONLY'])['Till_Code'].nunique().reset_index(name='UNIQUE_TILLS')
-        pivot = till_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='UNIQUE_TILLS').fillna(0)
+    st.header("Active Tills During the Day (30-min slots)")
+    if 'TRN_DATE' not in df.columns or 'Till_Code' not in df.columns:
+        st.warning("Missing TRN_DATE or Till_Code")
+        return
+    d = df.copy()
+    d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
+    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
+    d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
+    till_counts = d.groupby(['STORE_NAME','TIME_ONLY'])['Till_Code'].nunique().reset_index(name='UNIQUE_TILLS')
+    pivot = till_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='UNIQUE_TILLS').fillna(0)
     if pivot.empty:
         st.info("No till activity data")
         return
@@ -629,45 +386,42 @@ def active_tills_during_day(df):
     z = pivot.values
     x = [t.strftime('%H:%M') for t in intervals]
     y = pivot.index.tolist()
-    fig = px.imshow(z, x=x, y=y, labels=dict(x=f"Time Interval ({TIME_BUCKET_MIN} min)", y="Store Name", color="Unique Tills"), text_auto=True)
+    fig = px.imshow(z, x=x, y=y, labels=dict(x="Time Interval (30 min)", y="Store Name", color="Unique Tills"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
-    # Totals: max active tills per store
+    # Totals per store
     pivot_totals = pivot.max(axis=1).reset_index()
     pivot_totals.columns = ['STORE_NAME','MAX_ACTIVE_TILLS']
     format_and_display(pivot_totals, numeric_cols=['MAX_ACTIVE_TILLS'], index_col='STORE_NAME', total_label='TOTAL')
 
 def avg_customers_per_till(df):
-    st.header(f"Average Customers Served per Till ({TIME_BUCKET_MIN}-min slots)")
-    pre = st.session_state.get('precomp', {})
-    ratio = pre.get('customers_per_till_ratio') if pre else None
-    if ratio is None or ratio.empty:
-        if 'TRN_DATE' not in df.columns:
-            st.warning("Missing TRN_DATE")
-            return
-        d = df.copy()
-        d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-        for c in ['STORE_CODE','TILL','SESSION','RCT']:
-            if c in d.columns:
-                d[c] = d[c].astype(str).fillna('').str.strip()
-        if 'CUST_CODE' not in d.columns and all(col in d.columns for col in ['STORE_CODE','TILL','SESSION','RCT']):
-            d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
-        first_touch = d.groupby(['STORE_NAME', d['TRN_DATE'].dt.date, 'CUST_CODE'], as_index=False)['TRN_DATE'].min()
-        first_touch['TIME_INTERVAL'] = first_touch['TRN_DATE'].dt.floor(f'{TIME_BUCKET_MIN}T')
-        first_touch['TIME_ONLY'] = first_touch['TIME_INTERVAL'].dt.time
-        cust_counts = first_touch.groupby(['STORE_NAME','TIME_ONLY'])['CUST_CODE'].nunique().reset_index(name='CUSTOMERS')
-        d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor(f'{TIME_BUCKET_MIN}T')
-        d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
-        if 'Till_Code' not in d.columns and 'TILL' in d.columns and 'STORE_CODE' in d.columns:
-            d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
-        till_counts = d.groupby(['STORE_NAME','TIME_ONLY'])['Till_Code'].nunique().reset_index(name='TILLS')
-        cust_pivot = cust_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='CUSTOMERS').fillna(0)
-        till_pivot = till_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='TILLS').fillna(0)
-        cols = sorted(set(cust_pivot.columns) | set(till_pivot.columns))
-        cust_pivot = cust_pivot.reindex(columns=cols).fillna(0)
-        till_pivot = till_pivot.reindex(columns=cols).fillna(0)
-        ratio = cust_pivot / till_pivot.replace(0, np.nan)
-        ratio = np.ceil(ratio.fillna(0)).astype(int)
+    st.header("Average Customers Served per Till (30-min slots)")
+    if 'TRN_DATE' not in df.columns:
+        st.warning("Missing TRN_DATE")
+        return
+    d = df.copy()
+    d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
+    for c in ['STORE_CODE','TILL','SESSION','RCT']:
+        if c in d.columns:
+            d[c] = d[c].astype(str).fillna('').str.strip()
+    if 'CUST_CODE' not in d.columns:
+        d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
+    d['TRN_DATE_ONLY'] = d['TRN_DATE'].dt.date
+    first_touch = d.groupby(['STORE_NAME','TRN_DATE_ONLY','CUST_CODE'], as_index=False)['TRN_DATE'].min()
+    first_touch['TIME_INTERVAL'] = first_touch['TRN_DATE'].dt.floor('30T')
+    first_touch['TIME_ONLY'] = first_touch['TIME_INTERVAL'].dt.time
+    cust_counts = first_touch.groupby(['STORE_NAME','TIME_ONLY'])['CUST_CODE'].nunique().reset_index(name='CUSTOMERS')
+    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
+    d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
+    d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
+    till_counts = d.groupby(['STORE_NAME','TIME_ONLY'])['Till_Code'].nunique().reset_index(name='TILLS')
+    cust_pivot = cust_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='CUSTOMERS').fillna(0)
+    till_pivot = till_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='TILLS').fillna(0)
+    cols = sorted(set(cust_pivot.columns) | set(till_pivot.columns))
+    cust_pivot = cust_pivot.reindex(columns=cols).fillna(0)
+    till_pivot = till_pivot.reindex(columns=cols).fillna(0)
+    ratio = cust_pivot / till_pivot.replace(0, np.nan)
+    ratio = np.ceil(ratio.fillna(0)).astype(int)
     if ratio.empty:
         st.info("No data")
         return
@@ -675,9 +429,10 @@ def avg_customers_per_till(df):
     z = ratio.values
     x = [t.strftime('%H:%M') for t in intervals]
     y = ratio.index.tolist()
-    fig = px.imshow(z, x=x, y=y, labels=dict(x=f"Time Interval ({TIME_BUCKET_MIN} min)", y="Store Name", color="Customers per Till"), text_auto=True)
+    fig = px.imshow(z, x=x, y=y, labels=dict(x="Time Interval (30 min)", y="Store Name", color="Customers per Till"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
+    # Totals: max ratio per store
     pivot_totals = pd.DataFrame({'STORE_NAME': ratio.index, 'MAX_CUSTOMERS_PER_TILL': ratio.max(axis=1).astype(int)})
     format_and_display(pivot_totals, numeric_cols=['MAX_CUSTOMERS_PER_TILL'], index_col='STORE_NAME', total_label='TOTAL')
 
@@ -691,7 +446,7 @@ def store_customer_traffic_storewise(df):
     d = df[df['STORE_NAME']==branch].copy()
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
     d = d.dropna(subset=['TRN_DATE'])
-    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor(f'{TIME_BUCKET_MIN}T')
+    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
     d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
     tmp = d.groupby(['DEPARTMENT','TIME_ONLY'])['CUST_CODE'].nunique().reset_index(name='Unique_Customers')
     pivot = tmp.pivot(index='DEPARTMENT', columns='TIME_ONLY', values='Unique_Customers').fillna(0)
@@ -702,9 +457,10 @@ def store_customer_traffic_storewise(df):
     z = pivot.values
     x = [t.strftime('%H:%M') for t in intervals]
     y = pivot.index.tolist()
-    fig = px.imshow(z, x=x, y=y, labels=dict(x=f"Time Interval ({TIME_BUCKET_MIN} min)", y="Department", color="Unique Customers"), text_auto=True)
+    fig = px.imshow(z, x=x, y=y, labels=dict(x="Time of Day", y="Department", color="Unique Customers"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
+    # Totals per department
     totals = pivot.sum(axis=1).reset_index()
     totals.columns = ['DEPARTMENT','TOTAL_CUSTOMERS']
     format_and_display(totals, numeric_cols=['TOTAL_CUSTOMERS'], index_col='DEPARTMENT', total_label='TOTAL')
@@ -715,87 +471,53 @@ def customer_traffic_departmentwise(df):
 
 def cashiers_performance(df):
     st.header("Cashiers Performance")
-    pre = st.session_state.get('precomp', {})
-    cashier_summary = pre.get('cashier_summary') if pre else None
-    if cashier_summary is None or cashier_summary.empty:
-        if not all(c in df.columns for c in ['TRN_DATE','CUST_CODE','CASHIER','STORE_NAME']):
-            st.warning("Missing required columns for cashier performance")
-            return
-        d = df.copy()
-        d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-        receipt_duration = d.groupby(['STORE_NAME','CUST_CODE'], as_index=False).agg(Start_Time=('TRN_DATE','min'), End_Time=('TRN_DATE','max'))
-        receipt_duration['Duration_Sec'] = (receipt_duration['End_Time'] - receipt_duration['Start_Time']).dt.total_seconds().fillna(0)
-        merged = d.merge(receipt_duration[['STORE_NAME','CUST_CODE','Duration_Sec']], on=['STORE_NAME','CUST_CODE'], how='left')
-        cashier_summary = merged.groupby(['STORE_NAME','CASHIER'], as_index=False).agg(Avg_Duration_Sec=('Duration_Sec','mean'), Customers_Served=('CUST_CODE','nunique'))
-        cashier_summary['Avg_Serve_Min'] = (cashier_summary['Avg_Duration_Sec']/60).round(1)
-    branches = sorted(cashier_summary['STORE_NAME'].unique()) if not cashier_summary.empty else []
-    if not branches:
-        st.info("No cashier data")
+    if not all(c in df.columns for c in ['TRN_DATE','CUST_CODE','CASHIER-COUNT','STORE_NAME']):
+        st.warning("Missing required columns for cashier performance")
         return
+    d = df.copy()
+    d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
+    receipt_duration = d.groupby(['STORE_NAME','CUST_CODE'], as_index=False).agg(Start_Time=('TRN_DATE','min'), End_Time=('TRN_DATE','max'))
+    receipt_duration['Duration_Sec'] = (receipt_duration['End_Time'] - receipt_duration['Start_Time']).dt.total_seconds().fillna(0)
+    merged = d.merge(receipt_duration[['STORE_NAME','CUST_CODE','Duration_Sec']], on=['STORE_NAME','CUST_CODE'], how='left')
+    cashier_summary = merged.groupby(['STORE_NAME','CASHIER-COUNT'], as_index=False).agg(Avg_Duration_Sec=('Duration_Sec','mean'), Customers_Served=('CUST_CODE','nunique'))
+    cashier_summary['Avg_Serve_Min'] = (cashier_summary['Avg_Duration_Sec']/60).round(1)
+    branches = sorted(cashier_summary['STORE_NAME'].unique())
     branch = st.selectbox("Select Branch for Cashier Performance", branches)
     dfb = cashier_summary[cashier_summary['STORE_NAME']==branch].sort_values('Avg_Serve_Min')
     if dfb.empty:
         st.info("No cashier data for this branch")
         return
     dfb['Label'] = dfb['Avg_Serve_Min'].astype(str) + ' min (' + dfb['Customers_Served'].astype(str) + ' customers)'
-    fig = px.bar(dfb, x='Avg_Serve_Min', y='CASHIER', orientation='h', text='Label', color='Avg_Serve_Min', color_continuous_scale='Blues', title=f"Avg Serving Time per Cashier — {branch}")
+    fig = px.bar(dfb, x='Avg_Serve_Min', y='CASHIER-COUNT', orientation='h', text='Label', color='Avg_Serve_Min', color_continuous_scale='Blues', title=f"Avg Serving Time per Cashier — {branch}")
     fig.update_layout(coloraxis_showscale=False, height=max(400, 25*len(dfb)))
     st.plotly_chart(fig, use_container_width=True)
-    format_and_display(dfb[['CASHIER','Avg_Serve_Min','Customers_Served']], numeric_cols=['Avg_Serve_Min','Customers_Served'], index_col='CASHIER', total_label='TOTAL')
+    # Show formatted table with totals
+    format_and_display(dfb[['CASHIER-COUNT','Avg_Serve_Min','Customers_Served']], numeric_cols=['Avg_Serve_Min','Customers_Served'], index_col='CASHIER-COUNT', total_label='TOTAL')
 
 def till_usage(df):
     st.header("Till Usage")
-    pre = st.session_state.get('precomp', {})
-    pivot = pre.get('till_activity') if pre else None
-    if pivot is None or pivot.empty:
-        d = df.copy()
-        d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-        d['TIME_SLOT'] = d['TRN_DATE'].dt.floor(f'{TIME_BUCKET_MIN}T')
-        d['TIME_ONLY'] = d['TIME_SLOT'].dt.time
-        if 'Till_Code' not in d.columns and 'TILL' in d.columns and 'STORE_CODE' in d.columns:
-            d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
-        till_activity = d.groupby(['STORE_NAME','Till_Code','TIME_ONLY'], as_index=False).agg(Receipts=('CUST_CODE','nunique'))
-        branches = sorted(d['STORE_NAME'].unique())
-        branch = st.selectbox("Select Branch for Till Usage", branches)
-        dfb = till_activity[till_activity['STORE_NAME']==branch]
-        if dfb.empty:
-            st.info("No till activity")
-            return
-        pivot = dfb.pivot(index='Till_Code', columns='TIME_ONLY', values='Receipts').fillna(0)
-    else:
-        branches = sorted(pivot.index.get_level_values(0).unique()) if hasattr(pivot.index, 'levels') else list(pivot.index)
-        # fallback branch selector: use original df branches
-        branches = sorted(df['STORE_NAME'].unique()) if not branches else branches
-        branch = st.selectbox("Select Branch for Till Usage", branches)
-        # If precomputed pivot includes all stores (index is STORE_NAME), filter by branch:
-        if 'Till_Code' in pivot.index.names:
-            dfb = pivot
-        # For simplicity, if precomputed pivot is store x timeslots, we show as is and also display totals per till
-    if pivot.empty:
+    d = df.copy()
+    d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
+    d['TIME_SLOT'] = d['TRN_DATE'].dt.floor('30T')
+    d['TIME_ONLY'] = d['TIME_SLOT'].dt.time
+    if 'Till_Code' not in d.columns:
+        d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
+    till_activity = d.groupby(['STORE_NAME','Till_Code','TIME_ONLY'], as_index=False).agg(Receipts=('CUST_CODE','nunique'))
+    branches = sorted(d['STORE_NAME'].unique())
+    branch = st.selectbox("Select Branch for Till Usage", branches)
+    dfb = till_activity[till_activity['STORE_NAME']==branch]
+    if dfb.empty:
         st.info("No till activity")
         return
-    # When pivot index is STORE_NAME (store rows) or Till_Code (till rows), handle both
-    if 'Till_Code' in pivot.index.names or (pivot.index.dtype == object and any('-' in str(i) for i in pivot.index[:5])):
-        # pivot rows are Till_Code
-        x = [t.strftime('%H:%M') for t in sorted(pivot.columns)]
-        fig = px.imshow(pivot.values, x=x, y=pivot.index, labels=dict(x=f"Time of Day ({TIME_BUCKET_MIN}-min slot)", y="Till", color="Receipts"), text_auto=True)
-        fig.update_xaxes(side='top')
-        st.plotly_chart(fig, use_container_width=True)
-        totals = pivot.sum(axis=1).reset_index()
-        totals.columns = ['Till_Code','Total_Receipts']
-        format_and_display(totals, numeric_cols=['Total_Receipts'], index_col='Till_Code', total_label='TOTAL')
-    else:
-        # assume pivot rows are store names
-        intervals = sorted(pivot.columns)
-        z = pivot.values
-        x = [t.strftime('%H:%M') for t in intervals]
-        y = pivot.index.tolist()
-        fig = px.imshow(z, x=x, y=y, labels=dict(x=f"Time Interval ({TIME_BUCKET_MIN} min)", y="Store Name / Till", color="Receipts"), text_auto=True)
-        fig.update_xaxes(side='top')
-        st.plotly_chart(fig, use_container_width=True)
-        totals = pivot.sum(axis=1).reset_index()
-        totals.columns = ['Store','Total_Receipts']
-        format_and_display(totals, numeric_cols=['Total_Receipts'], index_col='Store', total_label='TOTAL')
+    pivot = dfb.pivot(index='Till_Code', columns='TIME_ONLY', values='Receipts').fillna(0)
+    x = [t.strftime('%H:%M') for t in sorted(pivot.columns)]
+    fig = px.imshow(pivot.values, x=x, y=pivot.index, labels=dict(x="Time of Day (30-min slot)", y="Till", color="Receipts"), text_auto=True)
+    fig.update_xaxes(side='top')
+    st.plotly_chart(fig, use_container_width=True)
+    # Totals per till
+    totals = pivot.sum(axis=1).reset_index()
+    totals.columns = ['Till_Code','Total_Receipts']
+    format_and_display(totals, numeric_cols=['Total_Receipts'], index_col='Till_Code', total_label='TOTAL')
 
 def tax_compliance(df):
     st.header("Tax Compliance")
@@ -817,18 +539,17 @@ def tax_compliance(df):
     fig.add_trace(go.Bar(y=pivot.index, x=pivot['Non-Compliant'], orientation='h', name='Non-Compliant', marker_color='#d62728', text=pivot['Non-Compliant'], textposition='outside'))
     fig.update_layout(barmode='stack', title=f"Tax Compliance by Till — {branch}", height=max(400, 24*len(pivot.index)))
     st.plotly_chart(fig, use_container_width=True)
+    # Summary table per store (compliant/non-compliant + total + pct)
     store_summary = d.groupby(['STORE_NAME','Tax_Compliant'], as_index=False).agg(Receipts=('CUST_CODE','nunique')).pivot(index='STORE_NAME', columns='Tax_Compliant', values='Receipts').fillna(0)
     store_summary['Total'] = store_summary.sum(axis=1)
     store_summary['Compliance_%'] = np.where(store_summary['Total']>0, (store_summary.get('Compliant',0)/store_summary['Total']*100).round(1), 0.0)
     format_and_display(store_summary.reset_index(), numeric_cols=['Compliant','Non-Compliant','Total','Compliance_%'], index_col='STORE_NAME', total_label='TOTAL')
 
 # -----------------------
-# INSIGHTS implementations - use precomputed where possible
+# INSIGHTS implementations (tables formatted)
 # -----------------------
 def customer_baskets_overview(df):
     st.header("Customer Baskets Overview")
-    pre = st.session_state.get('precomp', {})
-    item_baskets = pre.get('item_baskets') if pre else None
     d = df.copy()
     d = d.dropna(subset=['ITEM_NAME','CUST_CODE','STORE_NAME','DEPARTMENT'])
     d = d[~d['DEPARTMENT'].str.upper().eq('LUGGAGE & BAGS')]
@@ -841,12 +562,9 @@ def customer_baskets_overview(df):
     temp = d.copy()
     if selected_depts:
         temp = temp[temp['DEPARTMENT'].isin(selected_depts)]
-    if item_baskets is None or item_baskets.empty:
-        basket_count = temp.groupby('ITEM_NAME')['CUST_CODE'].nunique().rename('Count_of_Baskets')
-        agg_data = temp.groupby('ITEM_NAME')[['QTY','NET_SALES']].sum()
-        global_top = basket_count.to_frame().join(agg_data).reset_index().sort_values(metric, ascending=False).head(int(top_x))
-    else:
-        global_top = item_baskets.sort_values(metric, ascending=False).head(int(top_x))
+    basket_count = temp.groupby('ITEM_NAME')['CUST_CODE'].nunique().rename('Count_of_Baskets')
+    agg_data = temp.groupby('ITEM_NAME')[['QTY','NET_SALES']].sum()
+    global_top = basket_count.to_frame().join(agg_data).reset_index().sort_values(metric, ascending=False).head(int(top_x))
     global_top.insert(0,'#', range(1, len(global_top)+1))
     st.subheader("Global Top Items")
     format_and_display(global_top.reset_index(drop=True), numeric_cols=['Count_of_Baskets','QTY','NET_SALES'], index_col='ITEM_NAME', total_label='TOTAL')
@@ -890,13 +608,10 @@ def global_category_overview_baskets(df):
 
 def supplier_contribution(df):
     st.header("Supplier Contribution (Top suppliers by net sales)")
-    pre = st.session_state.get('precomp', {})
-    g = pre.get('supplier_contribution') if pre else None
-    if g is None or g.empty:
-        if 'SUPPLIER_NAME' not in df.columns:
-            st.warning("Missing SUPPLIER_NAME")
-            return
-        g = df.groupby('SUPPLIER_NAME', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False).head(50)
+    if 'SUPPLIER_NAME' not in df.columns:
+        st.warning("Missing SUPPLIER_NAME")
+        return
+    g = df.groupby('SUPPLIER_NAME', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False).head(50)
     format_and_display(g, numeric_cols=['NET_SALES'], index_col='SUPPLIER_NAME', total_label='TOTAL')
     fig = px.bar(g, x='NET_SALES', y='SUPPLIER_NAME', orientation='h', title="Top Suppliers by Net Sales")
     st.plotly_chart(fig, use_container_width=True)
@@ -1019,24 +734,18 @@ def customer_loyalty_overview(df):
 
 def global_pricing_overview(df):
     st.header("Global Pricing Overview — Multi-Priced SKUs per Day")
-    pre = st.session_state.get('precomp', {})
-    summary = pre.get('pricing_multi') if pre else None
-    if summary is None or summary.empty:
-        if not all(c in df.columns for c in ['TRN_DATE','STORE_NAME','ITEM_CODE','ITEM_NAME','QTY','SP_PRE_VAT']):
-            st.warning("Missing pricing columns")
-            return
-        d = df.copy()
-        d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-        d['DATE'] = d['TRN_DATE'].dt.date
-        d['SP_PRE_VAT'] = pd.to_numeric(d['SP_PRE_VAT'].astype(str).str.replace(',','',regex=False), errors='coerce').fillna(0)
-        grp = d.groupby(['STORE_NAME','DATE','ITEM_CODE','ITEM_NAME'], as_index=False).agg(Num_Prices=('SP_PRE_VAT', lambda s: s.dropna().nunique()), Price_Min=('SP_PRE_VAT','min'), Price_Max=('SP_PRE_VAT','max'), Total_QTY=('QTY','sum'))
-        grp['Price_Spread'] = grp['Price_Max'] - grp['Price_Min']
-        multi_price = grp[(grp['Num_Prices']>1) & (grp['Price_Spread']>0)].copy()
-        if not multi_price.empty:
-            multi_price['Diff_Value'] = multi_price['Total_QTY'] * multi_price['Price_Spread']
-            summary = multi_price.groupby('STORE_NAME', as_index=False).agg(Items_with_MultiPrice=('ITEM_CODE','nunique'), Total_Diff_Value=('Diff_Value','sum'), Avg_Spread=('Price_Spread','mean'), Max_Spread=('Price_Spread','max'))
-        else:
-            summary = pd.DataFrame()
+    if not all(c in df.columns for c in ['TRN_DATE','STORE_NAME','ITEM_CODE','ITEM_NAME','QTY','SP_PRE_VAT']):
+        st.warning("Missing pricing columns")
+        return
+    d = df.copy()
+    d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
+    d['DATE'] = d['TRN_DATE'].dt.date
+    d['SP_PRE_VAT'] = pd.to_numeric(d['SP_PRE_VAT'].astype(str).str.replace(',','',regex=False), errors='coerce').fillna(0)
+    grp = d.groupby(['STORE_NAME','DATE','ITEM_CODE','ITEM_NAME'], as_index=False).agg(Num_Prices=('SP_PRE_VAT', lambda s: s.dropna().nunique()), Price_Min=('SP_PRE_VAT','min'), Price_Max=('SP_PRE_VAT','max'), Total_QTY=('QTY','sum'))
+    grp['Price_Spread'] = grp['Price_Max'] - grp['Price_Min']
+    multi_price = grp[(grp['Num_Prices']>1) & (grp['Price_Spread']>0)].copy()
+    multi_price['Diff_Value'] = multi_price['Total_QTY'] * multi_price['Price_Spread']
+    summary = multi_price.groupby('STORE_NAME', as_index=False).agg(Items_with_MultiPrice=('ITEM_CODE','nunique'), Total_Diff_Value=('Diff_Value','sum'), Avg_Spread=('Price_Spread','mean'), Max_Spread=('Price_Spread','max'))
     format_and_display(summary.sort_values('Total_Diff_Value', ascending=False), numeric_cols=['Items_with_MultiPrice','Total_Diff_Value','Avg_Spread','Max_Spread'], index_col='STORE_NAME', total_label='TOTAL')
 
 def branch_pricing_overview(df):
@@ -1058,34 +767,25 @@ def branch_pricing_overview(df):
 
 def global_refunds_overview(df):
     st.header("Global Refunds Overview (Negative receipts)")
-    pre = st.session_state.get('precomp', {})
-    summary = pre.get('refunds_summary') if pre else None
-    if summary is None or summary.empty:
-        d = df.copy()
-        if 'NET_SALES' not in d.columns:
-            st.info("No NET_SALES column")
-            return
-        d['NET_SALES'] = pd.to_numeric(d['NET_SALES'].astype(str).str.replace(',','',regex=False), errors='coerce').fillna(0)
-        neg = d[d['NET_SALES']<0]
-        if neg.empty:
-            st.info("No negative receipts found")
-            return
-        if 'CAP_CUSTOMER_CODE' in neg.columns:
-            neg['Sale_Type'] = np.where(neg['CAP_CUSTOMER_CODE'].str.replace('nan','').str.strip().astype(bool), 'On_account sales', 'General sales')
-        else:
-            neg['Sale_Type'] = 'General sales'
-        summary = neg.groupby(['STORE_NAME','Sale_Type'], as_index=False).agg(Total_Neg_Value=('NET_SALES','sum'), Total_Count=('CUST_CODE','nunique'))
+    d = df.copy()
+    d['NET_SALES'] = pd.to_numeric(d['NET_SALES'].astype(str).str.replace(',','',regex=False), errors='coerce').fillna(0)
+    neg = d[d['NET_SALES']<0]
+    if neg.empty:
+        st.info("No negative receipts found")
+        return
+    if 'CAP_CUSTOMER_CODE' in neg.columns:
+        neg['Sale_Type'] = np.where(neg['CAP_CUSTOMER_CODE'].str.replace('nan','').str.strip().astype(bool), 'On_account sales', 'General sales')
+    else:
+        neg['Sale_Type'] = 'General sales'
+    summary = neg.groupby(['STORE_NAME','Sale_Type'], as_index=False).agg(Total_Neg_Value=('NET_SALES','sum'), Total_Count=('CUST_CODE','nunique'))
     format_and_display(summary.sort_values('Total_Neg_Value'), numeric_cols=['Total_Neg_Value','Total_Count'], index_col='STORE_NAME', total_label='TOTAL')
 
 def branch_refunds_overview(df):
     st.header("Branch Refunds Overview (Negative receipts per store)")
     d = df.copy()
-    if 'NET_SALES' not in d.columns:
-        st.info("No NET_SALES column")
-        return
     d['NET_SALES'] = pd.to_numeric(d['NET_SALES'].astype(str).str.replace(',','',regex=False), errors='coerce').fillna(0)
     neg = d[d['NET_SALES']<0]
-    branches = sorted(neg['STORE_NAME'].unique()) if not neg.empty else []
+    branches = sorted(neg['STORE_NAME'].unique())
     if not branches:
         st.info("No negative receipts")
         return
@@ -1102,16 +802,7 @@ def main():
     df = smart_load()
     if df is None:
         st.stop()
-
-    # Clean and then precompute everything (store precomp in session_state)
     df = clean_common(df)
-
-    # Build cache_bust token from session_state to allow forced recompute
-    cache_bust = st.session_state.get('cache_bust', None)
-    # Run preprocessing immediately so subsequent UI switching is fast
-    with st.spinner("Precomputing aggregates (this runs once on upload; cached for faster navigation)..."):
-        precomp = preprocess_all(df, cache_bust)
-    st.session_state['precomp'] = precomp
 
     # Top-level sections
     section = st.sidebar.selectbox("Section", ["SALES","OPERATIONS","INSIGHTS"])
