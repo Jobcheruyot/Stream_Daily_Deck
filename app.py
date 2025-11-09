@@ -1,16 +1,7 @@
 # Streamlit app converted from Colab notebook "Superdeck"
-# Single-file app to run the requested sections under three main menus:
-#   - SALES
-#   - OPERATIONS
-#   - INSIGHTS
-#
+# Updated: Added table formatting helper to append totals and format numeric columns with commas.
 # Usage:
 #   streamlit run app.py
-#
-# The app accepts a CSV upload (recommended) or will try to read a default filename.
-# It attempts to replicate the notebook visualizations and interactive controls
-# listed by the user. Not every minor helper from the notebook is reproduced,
-# but the core analyses and interactivity are implemented.
 
 import streamlit as st
 import pandas as pd
@@ -60,7 +51,7 @@ def clean_common(df):
             df[c] = df[c].astype(str).str.replace(',', '', regex=False).str.strip()
             df[c] = pd.to_numeric(df[c], errors='coerce')
     # string cleanup for keys
-    for c in ['STORE_CODE','TILL','SESSION','RCT','STORE_NAME','CASHIER','ITEM_CODE','ITEM_NAME','DEPARTMENT','CATEGORY','CU_DEVICE_SERIAL','CAP_CUSTOMER_CODE','LOYALTY_CUSTOMER_CODE','SUPPLIER_NAME']:
+    for c in ['STORE_CODE','TILL','SESSION','RCT','STORE_NAME','CASHIER','ITEM_CODE','ITEM_NAME','DEPARTMENT','CATEGORY','CU_DEVICE_SERIAL','CAP_CUSTOMER_CODE','LOYALTY_CUSTOMER_CODE','SUPPLIER_NAME','SALES_CHANNEL_L1','SALES_CHANNEL_L2','SHIFT']:
         if c in df.columns:
             df[c] = df[c].astype(str).fillna('').str.strip()
     # Build composite fields used in many analyses
@@ -81,6 +72,65 @@ def clean_common(df):
     if 'TRN_DATE' in df.columns:
         df = df.dropna(subset=['TRN_DATE']).copy()
     return df
+
+# -----------------------
+# Table formatting helper
+# -----------------------
+def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index_col: str | None = None, total_label: str = 'TOTAL'):
+    """
+    Append a totals row (summing numeric columns) to df and format numeric columns with commas.
+    - numeric_cols: list of column names to treat as numeric. If None, autodetect numeric dtypes.
+    - index_col: if given, place the total_label in that column (or the first column if missing).
+    """
+    if df is None or df.empty:
+        st.dataframe(df)
+        return
+
+    df_display = df.copy()
+
+    # If numeric_cols not provided, detect numeric columns
+    if numeric_cols is None:
+        numeric_cols = list(df_display.select_dtypes(include=[np.number]).columns)
+
+    # Compute totals row
+    totals = {}
+    for col in df_display.columns:
+        if col in numeric_cols:
+            try:
+                totals[col] = df_display[col].astype(float).sum()
+            except Exception:
+                totals[col] = ''
+        else:
+            totals[col] = ''
+
+    # Put label in index_col or first string column
+    label_col = None
+    if index_col and index_col in df_display.columns:
+        label_col = index_col
+    else:
+        # find first non-numeric column to host label
+        non_numeric_cols = [c for c in df_display.columns if c not in numeric_cols]
+        label_col = non_numeric_cols[0] if non_numeric_cols else df_display.columns[0]
+
+    totals[label_col] = total_label
+
+    # Append totals row
+    tot_df = pd.DataFrame([totals], columns=df_display.columns)
+    appended = pd.concat([df_display, tot_df], ignore_index=True)
+
+    # Formatting
+    for col in numeric_cols:
+        if col in appended.columns:
+            # detect integer-like
+            series_vals = appended[col].dropna().astype(float)
+            is_int_like = np.allclose(series_vals.fillna(0).round(0), series_vals.fillna(0))
+            if is_int_like:
+                appended[col] = appended[col].map(lambda v: f"{int(v):,}" if pd.notna(v) and str(v) != '' else '')
+            else:
+                appended[col] = appended[col].map(lambda v: f"{v:,.2f}" if pd.notna(v) and str(v) != '' else '')
+
+    # Present with st.dataframe (strings will render nicely)
+    st.dataframe(appended, use_container_width=True)
 
 # -----------------------
 # Helper plotting utils
@@ -120,6 +170,8 @@ def sales_global_overview(df):
     g['NET_SALES_M'] = g['NET_SALES'] / 1_000_000
     fig = donut_from_agg(g, 'SALES_CHANNEL_L1', 'NET_SALES', "<b>SALES CHANNEL TYPE — Global Overview</b>", hole=0.65, value_is_millions=True)
     st.plotly_chart(fig, use_container_width=True)
+    # Also show table with totals
+    format_and_display(g[['SALES_CHANNEL_L1','NET_SALES']], numeric_cols=['NET_SALES'], index_col='SALES_CHANNEL_L1', total_label='TOTAL')
 
 def sales_by_channel_l2(df):
     st.header("Global Net Sales Distribution by Sales Channel")
@@ -130,6 +182,7 @@ def sales_by_channel_l2(df):
     g['NET_SALES_M'] = g['NET_SALES'] / 1_000_000
     fig = donut_from_agg(g, 'SALES_CHANNEL_L2', 'NET_SALES', "<b>Global Net Sales Distribution by Sales Mode (SALES_CHANNEL_L2)</b>", hole=0.65, value_is_millions=True)
     st.plotly_chart(fig, use_container_width=True)
+    format_and_display(g[['SALES_CHANNEL_L2','NET_SALES']], numeric_cols=['NET_SALES'], index_col='SALES_CHANNEL_L2', total_label='TOTAL')
 
 def sales_by_shift(df):
     st.header("Global Net Sales Distribution by SHIFT")
@@ -142,6 +195,8 @@ def sales_by_shift(df):
     fig = go.Figure(data=[go.Pie(labels=labels, values=g['NET_SALES'], hole=0.65)])
     fig.update_layout(title="<b>Global Net Sales Distribution by SHIFT</b>")
     st.plotly_chart(fig, use_container_width=True)
+    # Table with totals
+    format_and_display(g[['SHIFT','NET_SALES','PCT']], numeric_cols=['NET_SALES','PCT'], index_col='SHIFT', total_label='TOTAL')
 
 def night_vs_day_ratio(df):
     st.header("Night vs Day Shift Sales Ratio — Stores with Night Shifts")
@@ -169,6 +224,9 @@ def night_vs_day_ratio(df):
         fig.add_annotation(x=n_val + 1, y=numbered_labels[i], text=f"{d_val:.1f}% Day", showarrow=False, xanchor='left')
     fig.update_layout(title="Night vs Day Shift Sales Ratio — Stores with Night Shifts", xaxis_title="% of Store Sales", height=700)
     st.plotly_chart(fig, use_container_width=True)
+    # Table with totals
+    table = pivot_sorted.reset_index().rename(columns={'Night':'Night_%','Day':'Day_%'})
+    format_and_display(table, numeric_cols=['Night_%','Day_%'], index_col='STORE_NAME', total_label='TOTAL')
 
 def global_day_vs_night(df):
     st.header("Global Day vs Night Sales — Only Stores with NIGHT Shifts")
@@ -188,6 +246,7 @@ def global_day_vs_night(df):
     fig = go.Figure(go.Pie(labels=labels, values=agg['NET_SALES'], hole=0.65))
     fig.update_layout(title="<b>Global Day vs Night Sales — Only Stores with NIGHT Shifts</b>")
     st.plotly_chart(fig, use_container_width=True)
+    format_and_display(agg, numeric_cols=['NET_SALES','PCT'], index_col='Shift_Bucket', total_label='TOTAL')
 
 def second_highest_channel_share(df):
     st.header("2nd-Highest Channel Share")
@@ -213,16 +272,13 @@ def second_highest_channel_share(df):
     if top_.empty:
         st.info("No stores to display")
         return
-    # Create lollipop-like chart using Plotly: horizontal bars with marker points
     fig = go.Figure()
     fig.add_trace(go.Bar(x=top_['SECOND_PCT'], y=top_['STORE_NAME'], orientation='h',
                          marker_color='#9aa0a6', name='Stem', hoverinfo='none',
                          text=[f"{p:.1f}%" for p in top_['SECOND_PCT']], textposition='outside'))
-    # Add points on top of stems
     fig.add_trace(go.Scatter(x=top_['SECOND_PCT'], y=top_['STORE_NAME'], mode='markers',
                              marker=dict(color='#1f77b4', size=10), name='2nd Channel %',
                              hovertemplate='%{x:.1f}%<extra></extra>'))
-    # Add channel labels on the right
     annotations = []
     for idx, row in top_.iterrows():
         annotations.append(dict(x=row['SECOND_PCT'] + 1, y=row['STORE_NAME'], text=f"{row['SECOND_CHANNEL']}", showarrow=False, xanchor='left', font=dict(size=10)))
@@ -231,6 +287,8 @@ def second_highest_channel_share(df):
                       height=max(500, 24*len(top_)),
                       annotations=annotations, yaxis=dict(autorange='reversed'))
     st.plotly_chart(fig, use_container_width=True)
+    # show table with totals
+    format_and_display(second_sorted[['STORE_NAME','SECOND_CHANNEL','SECOND_PCT']], numeric_cols=['SECOND_PCT'], index_col='STORE_NAME', total_label='TOTAL')
 
 def bottom_30_2nd_highest(df):
     st.header("Bottom 30 — 2nd Highest Channel")
@@ -251,7 +309,6 @@ def bottom_30_2nd_highest(df):
     if bottom_30.empty:
         st.info("No stores to display")
         return
-    # Plot horizontal bars + points (lollipop-like)
     fig = go.Figure()
     fig.add_trace(go.Bar(x=bottom_30['SECOND_PCT'], y=bottom_30['STORE_NAME'], orientation='h', marker_color='#9aa0a6', name='Stem', text=[f"{v:.1f}%" for v in bottom_30['SECOND_PCT']], textposition='outside'))
     fig.add_trace(go.Scatter(x=bottom_30['SECOND_PCT'], y=bottom_30['STORE_NAME'], mode='markers', marker=dict(color='#1f77b4', size=10), name='2nd Channel %'))
@@ -260,6 +317,7 @@ def bottom_30_2nd_highest(df):
         annotations.append(dict(x=row['SECOND_PCT'] + 1, y=row['STORE_NAME'], text=f"{row['SECOND_CHANNEL']}", showarrow=False, xanchor='left', font=dict(size=10)))
     fig.update_layout(title="Bottom 30 Stores by 2nd-Highest Channel Share (SALES_CHANNEL_L1)", xaxis_title="2nd-Highest Channel Share (% of Store NET_SALES)", height=max(500, 24*len(bottom_30)), annotations=annotations, yaxis=dict(autorange='reversed'))
     st.plotly_chart(fig, use_container_width=True)
+    format_and_display(bottom_30, numeric_cols=['SECOND_PCT','TOP_PCT'], index_col='STORE_NAME', total_label='TOTAL')
 
 def stores_sales_summary(df):
     st.header("Stores Sales Summary")
@@ -275,10 +333,11 @@ def stores_sales_summary(df):
     if 'CUST_CODE' in df2.columns:
         cust_counts = df2.groupby('STORE_NAME')['CUST_CODE'].nunique().reset_index().rename(columns={'CUST_CODE':'Customer Numbers'})
         sales_summary = sales_summary.merge(cust_counts, on='STORE_NAME', how='left')
-    st.dataframe(sales_summary.style.format({'NET_SALES':'{:,}','GROSS_SALES':'{:,}','% Contribution':'{:.2f}%'}), use_container_width=True)
+    # Format & totals display
+    format_and_display(sales_summary[['STORE_NAME','NET_SALES','GROSS_SALES','% Contribution','Customer Numbers']], numeric_cols=['NET_SALES','GROSS_SALES','% Contribution','Customer Numbers'], index_col='STORE_NAME', total_label='TOTAL')
 
 # -----------------------
-# OPERATIONS implementations
+# OPERATIONS implementations (tables formatted where used)
 # -----------------------
 def customer_traffic_storewise(df):
     st.header("Customer Traffic Heatmap — Storewise (30-min slots)")
@@ -303,6 +362,11 @@ def customer_traffic_storewise(df):
     fig = px.imshow(z, x=x, y=y, labels=dict(x="Time Interval (30 min)", y="Store Name", color="Receipts"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
+    # provide totals table per store
+    pivot_totals = pivot.sum(axis=1).reset_index().rename(columns={0:'Total_Receipts'}) if isinstance(pivot.sum(axis=1), pd.Series) else pd.DataFrame()
+    pivot_totals = pivot.sum(axis=1).reset_index()
+    pivot_totals.columns = ['STORE_NAME','Total_Receipts']
+    format_and_display(pivot_totals, numeric_cols=['Total_Receipts'], index_col='STORE_NAME', total_label='TOTAL')
 
 def active_tills_during_day(df):
     st.header("Active Tills During the Day (30-min slots)")
@@ -325,6 +389,10 @@ def active_tills_during_day(df):
     fig = px.imshow(z, x=x, y=y, labels=dict(x="Time Interval (30 min)", y="Store Name", color="Unique Tills"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
+    # Totals per store
+    pivot_totals = pivot.max(axis=1).reset_index()
+    pivot_totals.columns = ['STORE_NAME','MAX_ACTIVE_TILLS']
+    format_and_display(pivot_totals, numeric_cols=['MAX_ACTIVE_TILLS'], index_col='STORE_NAME', total_label='TOTAL')
 
 def avg_customers_per_till(df):
     st.header("Average Customers Served per Till (30-min slots)")
@@ -364,6 +432,9 @@ def avg_customers_per_till(df):
     fig = px.imshow(z, x=x, y=y, labels=dict(x="Time Interval (30 min)", y="Store Name", color="Customers per Till"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
+    # Totals: max ratio per store
+    pivot_totals = pd.DataFrame({'STORE_NAME': ratio.index, 'MAX_CUSTOMERS_PER_TILL': ratio.max(axis=1).astype(int)})
+    format_and_display(pivot_totals, numeric_cols=['MAX_CUSTOMERS_PER_TILL'], index_col='STORE_NAME', total_label='TOTAL')
 
 def store_customer_traffic_storewise(df):
     st.header("Store Customer Traffic (per Department)")
@@ -386,9 +457,13 @@ def store_customer_traffic_storewise(df):
     z = pivot.values
     x = [t.strftime('%H:%M') for t in intervals]
     y = pivot.index.tolist()
-    fig = px.imshow(z, x=x, y=y, labels=dict(x="Time Interval", y="Department", color="Unique Customers"), text_auto=True)
+    fig = px.imshow(z, x=x, y=y, labels=dict(x="Time of Day", y="Department", color="Unique Customers"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
+    # Totals per department
+    totals = pivot.sum(axis=1).reset_index()
+    totals.columns = ['DEPARTMENT','TOTAL_CUSTOMERS']
+    format_and_display(totals, numeric_cols=['TOTAL_CUSTOMERS'], index_col='DEPARTMENT', total_label='TOTAL')
 
 def customer_traffic_departmentwise(df):
     st.header("Customer Traffic — Departmentwise (branch selectable)")
@@ -416,6 +491,8 @@ def cashiers_performance(df):
     fig = px.bar(dfb, x='Avg_Serve_Min', y='CASHIER-COUNT', orientation='h', text='Label', color='Avg_Serve_Min', color_continuous_scale='Blues', title=f"Avg Serving Time per Cashier — {branch}")
     fig.update_layout(coloraxis_showscale=False, height=max(400, 25*len(dfb)))
     st.plotly_chart(fig, use_container_width=True)
+    # Show formatted table with totals
+    format_and_display(dfb[['CASHIER-COUNT','Avg_Serve_Min','Customers_Served']], numeric_cols=['Avg_Serve_Min','Customers_Served'], index_col='CASHIER-COUNT', total_label='TOTAL')
 
 def till_usage(df):
     st.header("Till Usage")
@@ -437,6 +514,10 @@ def till_usage(df):
     fig = px.imshow(pivot.values, x=x, y=pivot.index, labels=dict(x="Time of Day (30-min slot)", y="Till", color="Receipts"), text_auto=True)
     fig.update_xaxes(side='top')
     st.plotly_chart(fig, use_container_width=True)
+    # Totals per till
+    totals = pivot.sum(axis=1).reset_index()
+    totals.columns = ['Till_Code','Total_Receipts']
+    format_and_display(totals, numeric_cols=['Total_Receipts'], index_col='Till_Code', total_label='TOTAL')
 
 def tax_compliance(df):
     st.header("Tax Compliance")
@@ -458,13 +539,14 @@ def tax_compliance(df):
     fig.add_trace(go.Bar(y=pivot.index, x=pivot['Non-Compliant'], orientation='h', name='Non-Compliant', marker_color='#d62728', text=pivot['Non-Compliant'], textposition='outside'))
     fig.update_layout(barmode='stack', title=f"Tax Compliance by Till — {branch}", height=max(400, 24*len(pivot.index)))
     st.plotly_chart(fig, use_container_width=True)
+    # Summary table per store (compliant/non-compliant + total + pct)
     store_summary = d.groupby(['STORE_NAME','Tax_Compliant'], as_index=False).agg(Receipts=('CUST_CODE','nunique')).pivot(index='STORE_NAME', columns='Tax_Compliant', values='Receipts').fillna(0)
     store_summary['Total'] = store_summary.sum(axis=1)
     store_summary['Compliance_%'] = np.where(store_summary['Total']>0, (store_summary.get('Compliant',0)/store_summary['Total']*100).round(1), 0.0)
-    st.dataframe(store_summary.reset_index(), use_container_width=True)
+    format_and_display(store_summary.reset_index(), numeric_cols=['Compliant','Non-Compliant','Total','Compliance_%'], index_col='STORE_NAME', total_label='TOTAL')
 
 # -----------------------
-# INSIGHTS implementations
+# INSIGHTS implementations (tables formatted)
 # -----------------------
 def customer_baskets_overview(df):
     st.header("Customer Baskets Overview")
@@ -485,7 +567,7 @@ def customer_baskets_overview(df):
     global_top = basket_count.to_frame().join(agg_data).reset_index().sort_values(metric, ascending=False).head(int(top_x))
     global_top.insert(0,'#', range(1, len(global_top)+1))
     st.subheader("Global Top Items")
-    st.dataframe(global_top, use_container_width=True)
+    format_and_display(global_top.reset_index(drop=True), numeric_cols=['Count_of_Baskets','QTY','NET_SALES'], index_col='ITEM_NAME', total_label='TOTAL')
     branch_df = temp[temp['STORE_NAME']==branch]
     if branch_df.empty:
         st.info("No data for selected branch")
@@ -495,12 +577,12 @@ def customer_baskets_overview(df):
     branch_top = basket_count_b.to_frame().join(agg_b).reset_index().sort_values(metric, ascending=False).head(int(top_x))
     branch_top.insert(0,'#', range(1, len(branch_top)+1))
     st.subheader(f"{branch} Top Items")
-    st.dataframe(branch_top, use_container_width=True)
+    format_and_display(branch_top.reset_index(drop=True), numeric_cols=['Count_of_Baskets','QTY','NET_SALES'], index_col='ITEM_NAME', total_label='TOTAL')
     missing = set(global_top['ITEM_NAME']) - set(branch_top['ITEM_NAME'])
     if missing:
         st.subheader(f"Items in Global Top {top_x} but missing/underperforming in {branch}")
-        missing_df = global_top[global_top['ITEM_NAME'].isin(missing)]
-        st.dataframe(missing_df, use_container_width=True)
+        missing_df = global_top[global_top['ITEM_NAME'].isin(missing)].reset_index(drop=True)
+        format_and_display(missing_df, numeric_cols=['Count_of_Baskets','QTY','NET_SALES'], index_col='ITEM_NAME', total_label='TOTAL')
     else:
         st.success(f"All top {top_x} global items also present in {branch}")
 
@@ -510,7 +592,7 @@ def global_category_overview_sales(df):
         st.warning("Missing CATEGORY")
         return
     g = df.groupby('CATEGORY', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
-    st.dataframe(g, use_container_width=True)
+    format_and_display(g, numeric_cols=['NET_SALES'], index_col='CATEGORY', total_label='TOTAL')
     fig = px.bar(g.head(20), x='NET_SALES', y='CATEGORY', orientation='h', title="Top Categories by Net Sales")
     st.plotly_chart(fig, use_container_width=True)
 
@@ -520,7 +602,7 @@ def global_category_overview_baskets(df):
         st.warning("Missing CATEGORY")
         return
     g = df.groupby('CATEGORY', as_index=False)['CUST_CODE'].nunique().rename(columns={'CUST_CODE':'Baskets'}).sort_values('Baskets', ascending=False)
-    st.dataframe(g, use_container_width=True)
+    format_and_display(g, numeric_cols=['Baskets'], index_col='CATEGORY', total_label='TOTAL')
     fig = px.bar(g.head(20), x='Baskets', y='CATEGORY', orientation='h', title="Top Categories by Baskets")
     st.plotly_chart(fig, use_container_width=True)
 
@@ -530,7 +612,7 @@ def supplier_contribution(df):
         st.warning("Missing SUPPLIER_NAME")
         return
     g = df.groupby('SUPPLIER_NAME', as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False).head(50)
-    st.dataframe(g, use_container_width=True)
+    format_and_display(g, numeric_cols=['NET_SALES'], index_col='SUPPLIER_NAME', total_label='TOTAL')
     fig = px.bar(g, x='NET_SALES', y='SUPPLIER_NAME', orientation='h', title="Top Suppliers by Net Sales")
     st.plotly_chart(fig, use_container_width=True)
 
@@ -540,7 +622,7 @@ def category_overview(df):
         st.warning("Missing CATEGORY")
         return
     g = df.groupby('CATEGORY', as_index=False).agg(Baskets=('CUST_CODE','nunique'), Net_Sales=('NET_SALES','sum')).sort_values('Net_Sales', ascending=False)
-    st.dataframe(g, use_container_width=True)
+    format_and_display(g, numeric_cols=['Baskets','Net_Sales'], index_col='CATEGORY', total_label='TOTAL')
 
 def branch_comparison(df):
     st.header("Branch Comparison")
@@ -566,9 +648,9 @@ def branch_comparison(df):
     fig.update_traces(textposition='outside')
     st.plotly_chart(fig, use_container_width=True)
     st.subheader(f"{a} Top Items")
-    st.dataframe(topA, use_container_width=True)
+    format_and_display(topA, numeric_cols=['Count_of_Baskets','QTY','NET_SALES'], index_col='ITEM_NAME', total_label='TOTAL')
     st.subheader(f"{b} Top Items")
-    st.dataframe(topB, use_container_width=True)
+    format_and_display(topB, numeric_cols=['Count_of_Baskets','QTY','NET_SALES'], index_col='ITEM_NAME', total_label='TOTAL')
 
 def product_performance(df):
     st.header("Product Performance")
@@ -589,7 +671,7 @@ def product_performance(df):
     basket_counts = baskets.groupby('STORE_NAME').agg(Baskets_With_Item=('Has_Item','sum')).reset_index()
     total_qty = item_data.groupby('STORE_NAME')['QTY'].sum().reset_index().rename(columns={'QTY':'Total_QTY_Sold_Branch'})
     summary = basket_counts.merge(total_qty, on='STORE_NAME', how='left').fillna(0).sort_values('Baskets_With_Item', ascending=False)
-    st.dataframe(summary, use_container_width=True)
+    format_and_display(summary, numeric_cols=['Baskets_With_Item','Total_QTY_Sold_Branch'], index_col='STORE_NAME', total_label='TOTAL')
     fig = px.bar(summary, x='Baskets_With_Item', y='STORE_NAME', orientation='h', title="Baskets with Item by Store")
     st.plotly_chart(fig, use_container_width=True)
 
@@ -606,7 +688,7 @@ def global_loyalty_overview(df):
     per_branch_multi = per_branch_multi[per_branch_multi['Baskets_in_Store']>1]
     overview = per_branch_multi.groupby('STORE_NAME', as_index=False).agg(Loyal_Customers_Multi=('LOYALTY_CUSTOMER_CODE','nunique'), Total_Baskets_of_Those=('Baskets_in_Store','sum'), Total_Value_of_Those=('Total_Value_in_Store','sum'))
     overview['Avg_Baskets_per_Customer'] = (overview['Total_Baskets_of_Those'] / overview['Loyal_Customers_Multi']).round(2)
-    st.dataframe(overview.sort_values('Loyal_Customers_Multi', ascending=False), use_container_width=True)
+    format_and_display(overview.sort_values('Loyal_Customers_Multi', ascending=False), numeric_cols=['Loyal_Customers_Multi','Total_Baskets_of_Those','Total_Value_of_Those','Avg_Baskets_per_Customer'], index_col='STORE_NAME', total_label='TOTAL')
 
 def branch_loyalty_overview(df):
     st.header("Branch Loyalty Overview (per-branch loyal customers with >1 baskets)")
@@ -621,7 +703,7 @@ def branch_loyalty_overview(df):
     store = st.selectbox("Select Branch", stores)
     per_store = receipts[receipts['STORE_NAME']==store].groupby('LOYALTY_CUSTOMER_CODE', as_index=False).agg(Baskets_in_Store=('CUST_CODE','nunique'), Total_Value_in_Store=('Basket_Value','sum'), First_Time=('First_Time','min'))
     per_store = per_store[per_store['Baskets_in_Store']>1].sort_values(['Baskets_in_Store','Total_Value_in_Store'], ascending=False)
-    st.dataframe(per_store, use_container_width=True)
+    format_and_display(per_store, numeric_cols=['Baskets_in_Store','Total_Value_in_Store'], index_col='LOYALTY_CUSTOMER_CODE', total_label='TOTAL')
 
 def customer_loyalty_overview(df):
     st.header("Customer Loyalty Overview (global)")
@@ -643,8 +725,12 @@ def customer_loyalty_overview(df):
         st.info("No receipts for this customer")
         return
     per_store = rc.groupby('STORE_NAME', as_index=False).agg(Baskets=('CUST_CODE','nunique'), Total_Value=('Basket_Value','sum'), First_Time=('First_Time','min'), Last_Time=('First_Time','max')).sort_values(['Baskets','Total_Value'], ascending=False)
-    st.dataframe(per_store, use_container_width=True)
-    st.dataframe(rc[['STORE_NAME','CUST_CODE','Basket_Value','First_Time']].sort_values(['STORE_NAME','First_Time']), use_container_width=True)
+    format_and_display(per_store, numeric_cols=['Baskets','Total_Value'], index_col='STORE_NAME', total_label='TOTAL')
+    # Receipt-level detail
+    rc_disp = rc.copy()
+    rc_disp['First_Time'] = rc_disp['First_Time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    rc_disp = rc_disp.rename(columns={'CUST_CODE':'Receipt_No','Basket_Value':'Basket_Value_KSh'})
+    format_and_display(rc_disp[['STORE_NAME','Receipt_No','Basket_Value_KSh','First_Time']], numeric_cols=['Basket_Value_KSh'], index_col='STORE_NAME', total_label='TOTAL')
 
 def global_pricing_overview(df):
     st.header("Global Pricing Overview — Multi-Priced SKUs per Day")
@@ -660,7 +746,7 @@ def global_pricing_overview(df):
     multi_price = grp[(grp['Num_Prices']>1) & (grp['Price_Spread']>0)].copy()
     multi_price['Diff_Value'] = multi_price['Total_QTY'] * multi_price['Price_Spread']
     summary = multi_price.groupby('STORE_NAME', as_index=False).agg(Items_with_MultiPrice=('ITEM_CODE','nunique'), Total_Diff_Value=('Diff_Value','sum'), Avg_Spread=('Price_Spread','mean'), Max_Spread=('Price_Spread','max'))
-    st.dataframe(summary.sort_values('Total_Diff_Value', ascending=False), use_container_width=True)
+    format_and_display(summary.sort_values('Total_Diff_Value', ascending=False), numeric_cols=['Items_with_MultiPrice','Total_Diff_Value','Avg_Spread','Max_Spread'], index_col='STORE_NAME', total_label='TOTAL')
 
 def branch_pricing_overview(df):
     st.header("Branch Pricing Overview")
@@ -677,7 +763,7 @@ def branch_pricing_overview(df):
         st.success(f"{branch}: No SKUs with multiple prices on same day")
         return
     multi['Diff_Value'] = multi['Total_QTY'] * multi['Price_Spread']
-    st.dataframe(multi.sort_values('Diff_Value', ascending=False), use_container_width=True)
+    format_and_display(multi.sort_values('Diff_Value', ascending=False), numeric_cols=['Num_Prices','Price_Min','Price_Max','Price_Spread','Total_QTY','Diff_Value'], index_col='ITEM_CODE', total_label='TOTAL')
 
 def global_refunds_overview(df):
     st.header("Global Refunds Overview (Negative receipts)")
@@ -692,7 +778,7 @@ def global_refunds_overview(df):
     else:
         neg['Sale_Type'] = 'General sales'
     summary = neg.groupby(['STORE_NAME','Sale_Type'], as_index=False).agg(Total_Neg_Value=('NET_SALES','sum'), Total_Count=('CUST_CODE','nunique'))
-    st.dataframe(summary.sort_values('Total_Neg_Value'), use_container_width=True)
+    format_and_display(summary.sort_values('Total_Neg_Value'), numeric_cols=['Total_Neg_Value','Total_Count'], index_col='STORE_NAME', total_label='TOTAL')
 
 def branch_refunds_overview(df):
     st.header("Branch Refunds Overview (Negative receipts per store)")
@@ -706,7 +792,7 @@ def branch_refunds_overview(df):
     branch = st.selectbox("Select Branch", branches)
     dfb = neg[neg['STORE_NAME']==branch]
     agg = dfb.groupby(['STORE_NAME','CUST_CODE'], as_index=False).agg(Total_Value=('NET_SALES','sum'), First_Time=('TRN_DATE','min'), Cashier=('CASHIER','first'))
-    st.dataframe(agg.sort_values('Total_Value'), use_container_width=True)
+    format_and_display(agg.sort_values('Total_Value'), numeric_cols=['Total_Value'], index_col='CUST_CODE', total_label='TOTAL')
 
 # -----------------------
 # Main App
