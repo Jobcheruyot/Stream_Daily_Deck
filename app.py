@@ -661,7 +661,7 @@ def customer_traffic_storewise(df):
     )
 
     fig.update_layout(
-        title="Customer Traffic Heatmap — Storewise (Unique Receipts per 30-min Slot)",
+        title="Customer Traffic Heatmap",
         xaxis_title="Time of Day",
         yaxis_title="Store Name",
         height=max(600, 25 * len(heatmap_matrix.index)),
