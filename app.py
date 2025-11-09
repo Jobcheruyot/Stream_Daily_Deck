@@ -1,9 +1,10 @@
 # Streamlit app "Superdeck" - optimized and updated
 # - Centralized cached cleaning (clean_and_derive)
 # - format_and_display helper for totals + formatting
-# - Corrected Global Loyalty Overview data-prep (matches your snippet)
-# - Branch Pricing Overview replaced with full drilldown + receipts-level details and CSV download
-# - Updated Customer Traffic-Storewise to dedup by earliest 30-min slot per receipt (per your spec)
+# - Corrected Global Loyalty Overview data-prep
+# - Branch Pricing Overview with full drilldown + receipts-level details and CSV download
+# - Updated Customer Traffic-Storewise to dedup by earliest 30-min slot per receipt
+# - Active Tills During the Day aligned to original Peak Active Tills heatmap
 # Usage:
 #   streamlit run app.py
 
@@ -58,9 +59,12 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
     d = df.copy()
 
     # Normalize string columns
-    str_cols = ['STORE_CODE','TILL','SESSION','RCT','STORE_NAME','CASHIER','ITEM_CODE',
-                'ITEM_NAME','DEPARTMENT','CATEGORY','CU_DEVICE_SERIAL','CAP_CUSTOMER_CODE',
-                'LOYALTY_CUSTOMER_CODE','SUPPLIER_NAME','SALES_CHANNEL_L1','SALES_CHANNEL_L2','SHIFT']
+    str_cols = [
+        'STORE_CODE', 'TILL', 'SESSION', 'RCT', 'STORE_NAME', 'CASHIER',
+        'ITEM_CODE', 'ITEM_NAME', 'DEPARTMENT', 'CATEGORY', 'CU_DEVICE_SERIAL',
+        'CAP_CUSTOMER_CODE', 'LOYALTY_CUSTOMER_CODE', 'SUPPLIER_NAME',
+        'SALES_CHANNEL_L1', 'SALES_CHANNEL_L2', 'SHIFT'
+    ]
     for c in str_cols:
         if c in d.columns:
             d[c] = d[c].fillna('').astype(str).str.strip()
@@ -89,7 +93,7 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
     if 'GROSS_SALES' not in d.columns:
         d['GROSS_SALES'] = d.get('NET_SALES', 0) + d.get('VAT_AMT', 0)
 
-    if all(col in d.columns for col in ['STORE_CODE','TILL','SESSION','RCT']):
+    if all(col in d.columns for col in ['STORE_CODE', 'TILL', 'SESSION', 'RCT']):
         d['CUST_CODE'] = (
             d['STORE_CODE'].astype(str) + '-' +
             d['TILL'].astype(str) + '-' +
@@ -139,7 +143,8 @@ def agg_count_distinct(df: pd.DataFrame, group_by: list, agg_col: str, agg_name:
 # -----------------------
 # Table formatting helper
 # -----------------------
-def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index_col: str | None = None, total_label: str = 'TOTAL'):
+def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None,
+                       index_col: str | None = None, total_label: str = 'TOTAL'):
     if df is None or df.empty:
         st.dataframe(df)
         return
@@ -162,7 +167,6 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index
             totals[col] = ''
 
     # Find label column
-    label_col = None
     if index_col and index_col in df_display.columns:
         label_col = index_col
     else:
@@ -196,7 +200,8 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index
 # -----------------------
 # Helper plotting utils
 # -----------------------
-def donut_from_agg(df_agg, label_col, value_col, title, hole=0.55, colors=None, legend_title=None, value_is_millions=False):
+def donut_from_agg(df_agg, label_col, value_col, title, hole=0.55,
+                   colors=None, legend_title=None, value_is_millions=False):
     labels = df_agg[label_col].astype(str).tolist()
     vals = df_agg[value_col].astype(float).tolist()
     if value_is_millions:
@@ -672,10 +677,7 @@ def customer_traffic_storewise(df):
     st.plotly_chart(fig, use_container_width=True)
 
     # Summary table of totals
-    totals_df = (
-        totals.reset_index()
-              .rename(columns={'index': 'STORE_NAME', 0: 'Total_Receipts'})
-    )
+    totals_df = totals.reset_index()
     totals_df.columns = ['STORE_NAME', 'Total_Receipts']
     st.subheader("Storewise Total Receipts (Deduped)")
     format_and_display(
@@ -686,30 +688,120 @@ def customer_traffic_storewise(df):
     )
 
 def active_tills_during_day(df):
-    st.header("Active Tills During the Day (30-min slots)")
-    if 'TRN_DATE' not in df.columns or 'Till_Code' not in df.columns:
-        st.warning("Missing TRN_DATE or Till_Code")
+    st.header("Peak Active Tills")
+
+    # Validate required columns
+    required = ['TRN_DATE', 'STORE_NAME', 'Till_Code', 'TIME_ONLY']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        st.warning(f"Missing required columns for Active Tills view: {missing}")
         return
-    till_counts = df.groupby(['STORE_NAME', 'TIME_ONLY'])['Till_Code'].nunique().reset_index(name='UNIQUE_TILLS')
-    pivot = till_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='UNIQUE_TILLS').fillna(0)
-    if pivot.empty:
-        st.info("No till activity data")
+
+    d = df.copy()
+    d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
+    d = d.dropna(subset=['TRN_DATE', 'STORE_NAME', 'Till_Code'])
+
+    # 1) Unique tills per store & 30-min slot
+    till_counts = (
+        d.groupby(['STORE_NAME', 'TIME_ONLY'])['Till_Code']
+         .nunique()
+         .reset_index(name='UNIQUE_TILLS')
+    )
+
+    if till_counts.empty:
+        st.info("No till activity data to display.")
         return
-    intervals = sorted(pivot.columns)
-    z = pivot.values
-    x = [t.strftime('%H:%M') for t in intervals]
-    y = pivot.index.tolist()
+
+    # 2) Create full 30-min grid 00:00–23:30
+    start_time = pd.Timestamp("00:00:00")
+    intervals = [(start_time + timedelta(minutes=30 * i)).time() for i in range(48)]
+    col_labels = [f"{t.hour:02d}:{t.minute:02d}" for t in intervals]
+
+    pivot = (
+        till_counts
+        .pivot(index='STORE_NAME', columns='TIME_ONLY', values='UNIQUE_TILLS')
+        .fillna(0)
+    )
+
+    # Ensure all intervals exist and ordered
+    for t in intervals:
+        if t not in pivot.columns:
+            pivot[t] = 0
+    pivot = pivot[intervals]
+
+    # 3) MAX active tills per store & sort by that
+    pivot['MAX'] = pivot.max(axis=1).astype(int)
+    pivot = pivot.sort_values('MAX', ascending=False)
+
+    max_vals = pivot['MAX']
+    heatmap_matrix = pivot.drop(columns=['MAX'])
+
+    if heatmap_matrix.empty:
+        st.info("No till activity data to display.")
+        return
+
+    # 4) Heatmap similar to original
+    z = heatmap_matrix.values
+    zmax = int(z.max()) if z.size else 1
+    if zmax <= 0:
+        zmax = 1
+
     fig = px.imshow(
         z,
-        x=x,
-        y=y,
-        labels=dict(x="Time Interval (30 min)", y="Store Name", color="Unique Tills"),
-        text_auto=True
+        x=col_labels,
+        y=heatmap_matrix.index,
+        text_auto=True,
+        aspect='auto',
+        color_continuous_scale='YlOrRd',
+        zmin=0,
+        zmax=zmax,
+        labels=dict(
+            x="Time of Day",
+            y="Store Name",
+            color="Unique Tills"
+        )
     )
+
+    # Time labels on top
     fig.update_xaxes(side='top')
+
+    # 5) Left-side MAX column
+    for i, val in enumerate(max_vals):
+        fig.add_annotation(
+            x=-0.6,
+            y=i,
+            text=str(val),
+            showarrow=False,
+            xanchor='right',
+            yanchor='middle',
+            font=dict(size=11, color='black')
+        )
+
+    # MAX header
+    fig.add_annotation(
+        x=-0.6,
+        y=-1,
+        text="<b>MAX</b>",
+        showarrow=False,
+        xanchor='right',
+        yanchor='top',
+        font=dict(size=12, color='black')
+    )
+
+    fig.update_layout(
+        title="Peak Active Tills",
+        xaxis_title="Time of Day",
+        yaxis_title="",
+        height=max(600, 25 * len(heatmap_matrix.index)),
+        margin=dict(l=160, r=20, t=80, b=40)
+    )
+
     st.plotly_chart(fig, use_container_width=True)
-    pivot_totals = pivot.max(axis=1).reset_index()
+
+    # 6) Summary table: peak active tills per store
+    pivot_totals = max_vals.reset_index()
     pivot_totals.columns = ['STORE_NAME', 'MAX_ACTIVE_TILLS']
+    st.subheader("Peak Active Tills per Store")
     format_and_display(
         pivot_totals,
         numeric_cols=['MAX_ACTIVE_TILLS'],
