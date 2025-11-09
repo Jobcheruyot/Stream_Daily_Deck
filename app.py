@@ -1,5 +1,8 @@
-# Streamlit app converted from Colab notebook "Superdeck"
-# Performance-focused revision, with corrected Global Loyalty Overview data-prep
+# Streamlit app "Superdeck" - optimized and updated
+# - Centralized cached cleaning (clean_and_derive)
+# - format_and_display helper for totals + formatting
+# - Corrected Global Loyalty Overview data-prep (matches your snippet)
+# - Branch Pricing Overview replaced with full drilldown + receipts-level details and CSV download
 # Usage:
 #   streamlit run app.py
 
@@ -33,6 +36,7 @@ def smart_load():
         st.sidebar.success("Loaded uploaded CSV")
         return df
 
+    # try default path (optional)
     default_path = "/content/DAILY_POS_TRN_ITEMS_2025-10-21.csv"
     try:
         with st.spinner(f"Loading default CSV: {default_path}"):
@@ -52,6 +56,7 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
         return df
     d = df.copy()
 
+    # Normalize string columns
     str_cols = ['STORE_CODE','TILL','SESSION','RCT','STORE_NAME','CASHIER','ITEM_CODE',
                 'ITEM_NAME','DEPARTMENT','CATEGORY','CU_DEVICE_SERIAL','CAP_CUSTOMER_CODE',
                 'LOYALTY_CUSTOMER_CODE','SUPPLIER_NAME','SALES_CHANNEL_L1','SALES_CHANNEL_L2','SHIFT']
@@ -59,6 +64,7 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
         if c in d.columns:
             d[c] = d[c].fillna('').astype(str).str.strip()
 
+    # Dates: convert once
     if 'TRN_DATE' in d.columns:
         d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
         d = d.dropna(subset=['TRN_DATE']).copy()
@@ -69,11 +75,13 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
     if 'ZED_DATE' in d.columns:
         d['ZED_DATE'] = pd.to_datetime(d['ZED_DATE'], errors='coerce')
 
+    # Numeric parsing (strip commas)
     numeric_cols = ['QTY', 'CP_PRE_VAT', 'SP_PRE_VAT', 'COST_PRE_VAT', 'NET_SALES', 'VAT_AMT']
     for c in numeric_cols:
         if c in d.columns:
             d[c] = pd.to_numeric(d[c].astype(str).str.replace(',', '', regex=False).str.strip(), errors='coerce').fillna(0)
 
+    # Build composite fields
     if 'GROSS_SALES' not in d.columns:
         d['GROSS_SALES'] = d.get('NET_SALES', 0) + d.get('VAT_AMT', 0)
 
@@ -125,9 +133,11 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index
 
     df_display = df.copy()
 
+    # If numeric_cols not provided, detect numeric columns
     if numeric_cols is None:
         numeric_cols = list(df_display.select_dtypes(include=[np.number]).columns)
 
+    # Compute totals row
     totals = {}
     for col in df_display.columns:
         if col in numeric_cols:
@@ -138,6 +148,7 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index
         else:
             totals[col] = ''
 
+    # Find label column
     label_col = None
     if index_col and index_col in df_display.columns:
         label_col = index_col
@@ -147,9 +158,11 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None, index
 
     totals[label_col] = total_label
 
+    # Append totals row
     tot_df = pd.DataFrame([totals], columns=df_display.columns)
     appended = pd.concat([df_display, tot_df], ignore_index=True)
 
+    # Formatting numeric columns
     for col in numeric_cols:
         if col in appended.columns:
             series_vals = appended[col].dropna().astype(float)
@@ -188,7 +201,7 @@ def donut_from_agg(df_agg, label_col, value_col, title, hole=0.55, colors=None, 
     return fig
 
 # -----------------------
-# SALES section implementations
+# SALES implementations
 # -----------------------
 def sales_global_overview(df):
     st.header("Global sales Overview")
@@ -537,7 +550,7 @@ def tax_compliance(df):
     format_and_display(store_summary.reset_index(), numeric_cols=['Compliant','Non-Compliant','Total','Compliance_%'], index_col='STORE_NAME', total_label='TOTAL')
 
 # -----------------------
-# INSIGHTS implementations (corrected Global Loyalty Overview)
+# INSIGHTS implementations (including corrected Global Loyalty and Branch Pricing)
 # -----------------------
 def customer_baskets_overview(df):
     st.header("Customer Baskets Overview")
@@ -724,7 +737,6 @@ def global_loyalty_overview(df):
         Total_Value_of_Those=('Total_Value_in_Store','sum')
     )
 
-    # Avoid division by zero
     overview['Avg_Baskets_per_Customer'] = np.where(
         overview['Loyal_Customers_Multi'] > 0,
         (overview['Total_Baskets_of_Those'] / overview['Loyal_Customers_Multi']).round(2),
@@ -796,19 +808,150 @@ def global_pricing_overview(df):
     format_and_display(summary.sort_values('Total_Diff_Value', ascending=False), numeric_cols=['Items_with_MultiPrice','Total_Diff_Value','Avg_Spread','Max_Spread'], index_col='STORE_NAME', total_label='TOTAL')
 
 def branch_pricing_overview(df):
+    """
+    Branch Pricing Overview (drilldown)
+    - Shows SKU-days with >1 distinct price (Price_Spread > 0) for a selected branch
+    - Summary per (DATE, ITEM): min/max price, spread, total qty, diff value
+    - Compact price-level breakdown (qty/receipts/time window)
+    - Full receipts-level details for the affected item-days (so you can see every receipt)
+    """
     st.header("Branch Pricing Overview")
-    d = df.copy()
-    d['DATE'] = d['TRN_DATE'].dt.date
-    branches = sorted(d['STORE_NAME'].unique())
-    branch = st.selectbox("Select Branch", branches)
-    per_item_day = d[d['STORE_NAME']==branch].groupby(['DATE','ITEM_CODE','ITEM_NAME'], as_index=False).agg(Num_Prices=('SP_PRE_VAT', lambda s: s.dropna().nunique()), Price_Min=('SP_PRE_VAT','min'), Price_Max=('SP_PRE_VAT','max'), Total_QTY=('QTY','sum'))
-    per_item_day['Price_Spread'] = per_item_day['Price_Max'] - per_item_day['Price_Min']
-    multi = per_item_day[(per_item_day['Num_Prices']>1) & (per_item_day['Price_Spread']>0)]
-    if multi.empty:
-        st.success(f"{branch}: No SKUs with multiple prices on same day")
+
+    # Validate required columns
+    required = ['TRN_DATE','STORE_NAME','ITEM_CODE','ITEM_NAME','QTY','SP_PRE_VAT','CUST_CODE']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        st.warning(f"Missing required columns for Branch Pricing Overview: {missing}")
         return
-    multi['Diff_Value'] = multi['Total_QTY'] * multi['Price_Spread']
-    format_and_display(multi.sort_values('Diff_Value', ascending=False), numeric_cols=['Num_Prices','Price_Min','Price_Max','Price_Spread','Total_QTY','Diff_Value'], index_col='ITEM_CODE', total_label='TOTAL')
+
+    # Prepare lightweight local copy and normalize once
+    d0 = df.copy()
+    d0['TRN_DATE'] = pd.to_datetime(d0['TRN_DATE'], errors='coerce')
+    d0 = d0.dropna(subset=['TRN_DATE','STORE_NAME','ITEM_CODE','ITEM_NAME','QTY','SP_PRE_VAT','CUST_CODE']).copy()
+
+    # Trim strings
+    for c in ['STORE_NAME','ITEM_CODE','ITEM_NAME','CUST_CODE']:
+        if c in d0.columns:
+            d0[c] = d0[c].astype(str).str.strip()
+
+    # Normalize numeric fields
+    d0['SP_PRE_VAT'] = d0['SP_PRE_VAT'].astype(str).str.replace(',', '', regex=False).str.strip()
+    d0['SP_PRE_VAT'] = pd.to_numeric(d0['SP_PRE_VAT'], errors='coerce').fillna(0.0)
+    d0['QTY'] = pd.to_numeric(d0['QTY'], errors='coerce').fillna(0.0)
+    d0['DATE'] = d0['TRN_DATE'].dt.date
+
+    # UI: branch selection
+    branches = sorted(d0['STORE_NAME'].unique())
+    if not branches:
+        st.info("No branches available in data")
+        return
+    branch = st.selectbox("Select Branch", branches)
+
+    if not branch:
+        st.info("Select a branch to proceed")
+        return
+
+    d = d0[d0['STORE_NAME'] == branch].copy()
+    if d.empty:
+        st.info("No rows for this branch.")
+        return
+
+    # A) Per (DATE, ITEM): compute num distinct prices, min, max, total qty
+    per_item_day = (
+        d.groupby(['DATE','ITEM_CODE','ITEM_NAME'], as_index=False)
+         .agg(
+             Num_Prices=('SP_PRE_VAT', lambda s: s.dropna().nunique()),
+             Price_Min=('SP_PRE_VAT', 'min'),
+             Price_Max=('SP_PRE_VAT', 'max'),
+             Total_QTY=('QTY', 'sum')
+         )
+    )
+    per_item_day['Price_Spread'] = per_item_day['Price_Max'] - per_item_day['Price_Min']
+
+    # Keep only true multi-price with positive spread
+    eps = 1e-9
+    multi = per_item_day[(per_item_day['Num_Prices'] > 1) & (per_item_day['Price_Spread'] > eps)].copy()
+
+    if multi.empty:
+        st.success(f"✅ {branch}: No SKUs with more than one distinct price (spread > 0) on the same day.")
+        return
+
+    # Compute diff value (impact) and format summary
+    multi['Price_Spread'] = multi['Price_Spread'].round(2)
+    multi['Diff_Value'] = (multi['Total_QTY'] * multi['Price_Spread']).round(2)
+    multi_sum = multi.sort_values(['DATE','Price_Spread','Total_QTY'], ascending=[False, False, False]).reset_index(drop=True)
+    multi_sum.insert(0, '#', range(1, len(multi_sum) + 1))
+
+    # Quick summary stats
+    sku_days = len(multi_sum)
+    sku_count = multi[['ITEM_CODE','ITEM_NAME']].drop_duplicates().shape[0]
+    value_sum = float(multi['Diff_Value'].sum())
+
+    st.markdown(f"**Branch:** {branch}  \n"
+                f"• Item-Days with >1 price (spread>0): **{sku_days:,}**   "
+                f"• Distinct SKUs affected: **{sku_count:,}**   "
+                f"• Total Diff Value: **{value_sum:,.2f}**")
+
+    st.subheader("Per Item / Day — Summary")
+    format_and_display(
+        multi_sum[['#','DATE','ITEM_CODE','ITEM_NAME','Num_Prices','Price_Min','Price_Max','Price_Spread','Total_QTY','Diff_Value']],
+        numeric_cols=['Num_Prices','Price_Min','Price_Max','Price_Spread','Total_QTY','Diff_Value'],
+        index_col='ITEM_CODE',
+        total_label='TOTAL'
+    )
+
+    # ------- Detailed price-level breakdown for affected item-days -------
+    price_brk = (
+        d.merge(multi[['DATE','ITEM_CODE']], on=['DATE','ITEM_CODE'], how='inner')
+         .groupby(['DATE','ITEM_CODE','ITEM_NAME','SP_PRE_VAT'], as_index=False)
+         .agg(
+             Qty_At_Price=('QTY','sum'),
+             Receipts_At_Price=('CUST_CODE','nunique'),
+             First_Time=('TRN_DATE','min'),
+             Last_Time=('TRN_DATE','max')
+         )
+    )
+
+    price_brk = price_brk.sort_values(['DATE','ITEM_NAME','SP_PRE_VAT'], ascending=[False, True, False]).reset_index(drop=True)
+    price_brk['First_Time_str'] = price_brk['First_Time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    price_brk['Last_Time_str'] = price_brk['Last_Time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    price_brk['Time_Window'] = price_brk['First_Time_str'] + ' → ' + price_brk['Last_Time_str']
+
+    price_compact = price_brk[['DATE','ITEM_CODE','ITEM_NAME','SP_PRE_VAT','Qty_At_Price','Receipts_At_Price','Time_Window']].rename(columns={
+        'SP_PRE_VAT':'Price',
+        'Qty_At_Price':'QTY',
+        'Receipts_At_Price':'Receipts'
+    })
+
+    st.subheader("Detailed — Price Breakdown (clean view)")
+    format_and_display(
+        price_compact,
+        numeric_cols=['Price','QTY','Receipts'],
+        index_col='ITEM_CODE',
+        total_label='TOTAL'
+    )
+
+    # ------- Full receipts-level detail for all affected item-days -------
+    receipts_detail = d.merge(multi[['DATE','ITEM_CODE']], on=['DATE','ITEM_CODE'], how='inner')
+    receipt_cols = ['DATE','ITEM_CODE','ITEM_NAME','CUST_CODE','TRN_DATE','SP_PRE_VAT','QTY']
+    optional = ['CASHIER','Till_Code','SHIFT','SALES_CHANNEL_L1','SALES_CHANNEL_L2']
+    for c in optional:
+        if c in receipts_detail.columns:
+            receipt_cols.append(c)
+    receipt_cols = [c for c in receipt_cols if c in receipts_detail.columns]
+    receipts_detail = receipts_detail[receipt_cols].sort_values(['DATE','ITEM_CODE','TRN_DATE'], ascending=[False, True, True]).reset_index(drop=True)
+    receipts_detail['TRN_DATE'] = receipts_detail['TRN_DATE'].dt.strftime('%Y-%m-%d %H:%M:%S')
+
+    st.subheader("All Receipt-level Details for Affected Item-Days")
+    st.info(f"Showing {len(receipts_detail):,} receipt rows for the affected item-days. Use the table search/filter in Streamlit to inspect specific receipts.")
+    with st.expander("Show full receipt details (expand)"):
+        st.dataframe(receipts_detail, use_container_width=True)
+
+    try:
+        csv_bytes = receipts_detail.to_csv(index=False).encode('utf-8')
+        st.download_button("Download receipts as CSV", data=csv_bytes, file_name=f"{branch}_multi_price_receipts.csv", mime="text/csv")
+    except Exception:
+        pass
 
 def global_refunds_overview(df):
     st.header("Global Refunds Overview (Negative receipts)")
