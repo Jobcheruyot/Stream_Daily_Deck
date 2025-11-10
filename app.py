@@ -1,14 +1,3 @@
-# Streamlit app "Superdeck" - optimized and updated
-# - Centralized cached cleaning (clean_and_derive)
-# - format_and_display helper for totals + formatting
-# - Corrected Global Loyalty Overview data-prep
-# - Branch Pricing Overview with full drilldown + receipts-level details and CSV download
-# - Customer Traffic-Storewise dedup by earliest 30-min slot per receipt
-# - Active Tills During the Day, Avg Customers per Till, and Store Customer Traffic Storewise
-#   aligned to your reference snippets (same logic, Streamlit-compatible)
-# Usage:
-#   streamlit run app.py
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -61,10 +50,9 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
 
     # Normalize string columns
     str_cols = [
-        'STORE_CODE', 'TILL', 'SESSION', 'RCT', 'STORE_NAME', 'CASHIER',
-        'ITEM_CODE', 'ITEM_NAME', 'DEPARTMENT', 'CATEGORY', 'CU_DEVICE_SERIAL',
-        'CAP_CUSTOMER_CODE', 'LOYALTY_CUSTOMER_CODE', 'SUPPLIER_NAME',
-        'SALES_CHANNEL_L1', 'SALES_CHANNEL_L2', 'SHIFT'
+        'STORE_CODE','TILL','SESSION','RCT','STORE_NAME','CASHIER','ITEM_CODE',
+        'ITEM_NAME','DEPARTMENT','CATEGORY','CU_DEVICE_SERIAL','CAP_CUSTOMER_CODE',
+        'LOYALTY_CUSTOMER_CODE','SUPPLIER_NAME','SALES_CHANNEL_L1','SALES_CHANNEL_L2','SHIFT'
     ]
     for c in str_cols:
         if c in d.columns:
@@ -75,7 +63,7 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
         d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
         d = d.dropna(subset=['TRN_DATE']).copy()
         d['DATE'] = d['TRN_DATE'].dt.date
-        d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
+        d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30min')
         d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
 
     if 'ZED_DATE' in d.columns:
@@ -95,7 +83,7 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
         d['GROSS_SALES'] = d.get('NET_SALES', 0) + d.get('VAT_AMT', 0)
 
     # CUST_CODE
-    if all(col in d.columns for col in ['STORE_CODE', 'TILL', 'SESSION', 'RCT']):
+    if all(col in d.columns for col in ['STORE_CODE','TILL','SESSION','RCT']):
         d['CUST_CODE'] = (
             d['STORE_CODE'].astype(str) + '-' +
             d['TILL'].astype(str) + '-' +
@@ -108,8 +96,7 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
 
     # Till_Code
     if 'TILL' in d.columns and 'STORE_CODE' in d.columns:
-        if 'Till_Code' not in d.columns:
-            d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
+        d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
 
     # CASHIER-COUNT
     if 'STORE_NAME' in d.columns and 'CASHIER' in d.columns:
@@ -125,7 +112,6 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
 
     if 'SP_PRE_VAT' in d.columns:
         d['SP_PRE_VAT'] = d['SP_PRE_VAT'].astype(float)
-
     if 'NET_SALES' in d.columns:
         d['NET_SALES'] = d['NET_SALES'].astype(float)
 
@@ -149,12 +135,10 @@ def agg_count_distinct(df: pd.DataFrame, group_by: list, agg_col: str, agg_name:
 # -----------------------
 # Table formatting helper
 # -----------------------
-def format_and_display(df: pd.DataFrame,
-                       numeric_cols: list | None = None,
-                       index_col: str | None = None,
-                       total_label: str = 'TOTAL'):
+def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None,
+                       index_col: str | None = None, total_label: str = 'TOTAL'):
     if df is None or df.empty:
-        st.dataframe(df, width='stretch')
+        st.dataframe(df)
         return
 
     df_display = df.copy()
@@ -162,7 +146,6 @@ def format_and_display(df: pd.DataFrame,
     if numeric_cols is None:
         numeric_cols = list(df_display.select_dtypes(include=[np.number]).columns)
 
-    # Totals row
     totals = {}
     for col in df_display.columns:
         if col in numeric_cols:
@@ -173,7 +156,6 @@ def format_and_display(df: pd.DataFrame,
         else:
             totals[col] = ''
 
-    # Label column
     if index_col and index_col in df_display.columns:
         label_col = index_col
     else:
@@ -185,7 +167,6 @@ def format_and_display(df: pd.DataFrame,
     tot_df = pd.DataFrame([totals], columns=df_display.columns)
     appended = pd.concat([df_display, tot_df], ignore_index=True)
 
-    # Format numerics
     for col in numeric_cols:
         if col in appended.columns:
             series_vals = appended[col].dropna()
@@ -193,19 +174,20 @@ def format_and_display(df: pd.DataFrame,
                 series_vals = series_vals.astype(float)
             except Exception:
                 continue
-            is_int_like = False
-            if len(series_vals) > 0:
-                is_int_like = np.allclose(series_vals.round(0), series_vals)
+            is_int_like = len(series_vals) > 0 and np.allclose(
+                series_vals.fillna(0).round(0),
+                series_vals.fillna(0)
+            )
             if is_int_like:
                 appended[col] = appended[col].map(
-                    lambda v: f"{int(float(v)):,}" if pd.notna(v) and str(v) != '' else ''
+                    lambda v: f"{int(v):,}" if pd.notna(v) and str(v) != '' else ''
                 )
             else:
                 appended[col] = appended[col].map(
                     lambda v: f"{float(v):,.2f}" if pd.notna(v) and str(v) != '' else ''
                 )
 
-    st.dataframe(appended, width='stretch')
+    st.dataframe(appended, use_container_width=True)
 
 # -----------------------
 # Helper plotting utils
@@ -215,15 +197,13 @@ def donut_from_agg(df_agg, label_col, value_col, title,
                    legend_title=None, value_is_millions=False):
     labels = df_agg[label_col].astype(str).tolist()
     vals = df_agg[value_col].astype(float).tolist()
-    if not vals:
-        vals = [0.0]
     if value_is_millions:
         vals_display = [v / 1_000_000 for v in vals]
         hover = 'KSh %{value:,.2f} M'
         values_for_plot = vals_display
     else:
         values_for_plot = vals
-        hover = 'KSh %{value:,.2f}' if isinstance(vals[0], (int, float, np.floating)) else '%{value}'
+        hover = 'KSh %{value:,.2f}' if isinstance(vals[0], (int, float)) else '%{value}'
     s = sum(vals) if sum(vals) != 0 else 1
     legend_labels = [
         f"{lab} ({100*val/s:.1f}% | {val/1_000_000:.1f} M)" if value_is_millions
@@ -244,7 +224,7 @@ def donut_from_agg(df_agg, label_col, value_col, title,
     return fig
 
 # -----------------------
-# SALES implementations
+# SALES
 # -----------------------
 def sales_global_overview(df):
     st.header("Global sales Overview")
@@ -254,7 +234,9 @@ def sales_global_overview(df):
     g = agg_net_sales_by(df, 'SALES_CHANNEL_L1')
     g['NET_SALES_M'] = g['NET_SALES'] / 1_000_000
     fig = donut_from_agg(
-        g, 'SALES_CHANNEL_L1', 'NET_SALES',
+        g,
+        'SALES_CHANNEL_L1',
+        'NET_SALES',
         "<b>SALES CHANNEL TYPE — Global Overview</b>",
         hole=0.65,
         value_is_millions=True
@@ -275,7 +257,9 @@ def sales_by_channel_l2(df):
     g = agg_net_sales_by(df, 'SALES_CHANNEL_L2')
     g['NET_SALES_M'] = g['NET_SALES'] / 1_000_000
     fig = donut_from_agg(
-        g, 'SALES_CHANNEL_L2', 'NET_SALES',
+        g,
+        'SALES_CHANNEL_L2',
+        'NET_SALES',
         "<b>Global Net Sales Distribution by Sales Mode (SALES_CHANNEL_L2)</b>",
         hole=0.65,
         value_is_millions=True
@@ -332,7 +316,7 @@ def night_vs_day_ratio(df):
         text=[f"{v:.1f}%" for v in pivot_sorted['Night']],
         textposition='inside'
     ))
-    for i, (n_val, d_val) in enumerate(zip(pivot_sorted['Night'], pivot_sorted.get('Day', 0))):
+    for i, (n_val, d_val) in enumerate(zip(pivot_sorted['Night'], pivot_sorted['Day'])):
         fig.add_annotation(
             x=n_val + 1,
             y=numbered_labels[i],
@@ -544,7 +528,7 @@ def stores_sales_summary(df):
     )
 
 # -----------------------
-# OPERATIONS implementations
+# OPERATIONS
 # -----------------------
 def customer_traffic_storewise(df):
     st.header("Customer Traffic Heatmap — Storewise (30-min slots, deduped)")
@@ -557,7 +541,7 @@ def customer_traffic_storewise(df):
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
     d = d.dropna(subset=['TRN_DATE', 'STORE_NAME']).copy()
 
-    # Ensure CUST_CODE
+    # Build/ensure CUST_CODE
     if 'CUST_CODE' in d.columns and d['CUST_CODE'].astype(str).str.strip().astype(bool).any():
         d['CUST_CODE'] = d['CUST_CODE'].astype(str).str.strip()
     else:
@@ -575,20 +559,19 @@ def customer_traffic_storewise(df):
         d.groupby(['STORE_NAME', 'TRN_DATE_ONLY', 'CUST_CODE'], as_index=False)['TRN_DATE']
          .min()
     )
-    first_touch['TIME_INTERVAL'] = first_touch['TRN_DATE'].dt.floor('30T')
+    first_touch['TIME_INTERVAL'] = first_touch['TRN_DATE'].dt.floor('30min')
     first_touch['TIME_ONLY'] = first_touch['TIME_INTERVAL'].dt.time
 
-    # Time grid
+    # 30-min grid
     start_time = pd.Timestamp("00:00:00")
     intervals = [(start_time + timedelta(minutes=30 * i)).time() for i in range(48)]
     col_labels = [f"{t.hour:02d}:{t.minute:02d}" for t in intervals]
 
     counts = (
         first_touch.groupby(['STORE_NAME', 'TIME_ONLY'])['CUST_CODE']
-        .nunique()
-        .reset_index(name='RECEIPT_COUNT')
+                   .nunique()
+                   .reset_index(name='RECEIPT_COUNT')
     )
-
     if counts.empty:
         st.info("No customer traffic data to display.")
         return
@@ -596,7 +579,6 @@ def customer_traffic_storewise(df):
     heatmap = counts.pivot(index='STORE_NAME', columns='TIME_ONLY',
                            values='RECEIPT_COUNT').fillna(0)
 
-    # Ensure all intervals
     for t in intervals:
         if t not in heatmap.columns:
             heatmap[t] = 0
@@ -644,7 +626,7 @@ def customer_traffic_storewise(df):
 
     fig.update_xaxes(side='top')
 
-    # Totals on left
+    # totals annotation
     for i, total in enumerate(totals):
         fig.add_annotation(
             x=-0.6,
@@ -655,7 +637,6 @@ def customer_traffic_storewise(df):
             yanchor='middle',
             font=dict(size=11, color='black')
         )
-
     fig.add_annotation(
         x=-0.6,
         y=-1,
@@ -690,53 +671,44 @@ def customer_traffic_storewise(df):
 def active_tills_during_day(df):
     st.header("Peak Active Tills")
 
-    if 'TRN_DATE' not in df.columns or 'STORE_NAME' not in df.columns:
-        st.warning("Missing TRN_DATE or STORE_NAME")
+    required = ['TRN_DATE', 'STORE_NAME', 'TILL', 'STORE_CODE']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        st.warning(f"Missing required columns for Active Tills view: {missing}")
         return
 
     d = df.copy()
 
-    # Ensure TILL & STORE_CODE
-    for col in ['TILL', 'STORE_CODE']:
-        if col not in d.columns:
-            st.warning("Missing TILL or STORE_CODE")
-            return
-        d[col] = d[col].astype(str).fillna('').str.strip()
-
-    # Till_Code
+    # Ensure strings
+    d['TILL'] = d['TILL'].astype(str).fillna('').str.strip()
+    d['STORE_CODE'] = d['STORE_CODE'].astype(str).fillna('').str.strip()
     if 'Till_Code' not in d.columns:
         d['Till_Code'] = d['TILL'] + '-' + d['STORE_CODE']
 
-    # Valid TRN_DATE
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
     d = d.dropna(subset=['TRN_DATE'])
-    if d.empty:
-        st.info("No transaction data")
-        return
 
-    # 30-min buckets
-    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
+    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30min')
     d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
 
     # Time grid
     start_time = pd.Timestamp("00:00:00")
-    intervals = [(start_time + timedelta(minutes=30 * i)).time() for i in range(48)]
+    intervals = [(start_time + timedelta(minutes=30*i)).time() for i in range(48)]
     col_labels = [f"{t.hour:02d}:{t.minute:02d}" for t in intervals]
 
-    # Unique tills per interval
+    # Count unique tills per interval
     till_counts = (
-        d.groupby(['STORE_NAME', 'TIME_ONLY'])['Till_Code']
-         .nunique()
-         .reset_index(name='UNIQUE_TILLS')
+        d.groupby(['STORE_NAME','TIME_ONLY'])['Till_Code']
+          .nunique()
+          .reset_index(name='UNIQUE_TILLS')
     )
+
     if till_counts.empty:
-        st.info("No till activity data")
+        st.info("No till activity data to display.")
         return
 
-    heatmap = till_counts.pivot(index='STORE_NAME', columns='TIME_ONLY',
-                                values='UNIQUE_TILLS').fillna(0)
+    heatmap = till_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='UNIQUE_TILLS').fillna(0)
 
-    # Ensure all intervals
     for t in intervals:
         if t not in heatmap.columns:
             heatmap[t] = 0
@@ -768,18 +740,13 @@ def active_tills_during_day(df):
         text_auto=True,
         aspect='auto',
         color_continuous_scale=colorscale,
-        zmin=0,
-        zmax=zmax,
-        labels=dict(
-            x="Time Interval (30 min)",
-            y="Store Name",
-            color="Unique Tills"
-        )
+        zmin=0, zmax=zmax,
+        labels=dict(x="Time Interval (30 min)", y="Store Name", color="Unique Tills")
     )
 
     fig.update_xaxes(side='top')
 
-    # Max labels on left
+    # Max labels
     for i, max_till in enumerate(max_vals):
         fig.add_annotation(
             x=-0.6, y=i,
@@ -824,59 +791,39 @@ def active_tills_during_day(df):
 def avg_customers_per_till(df):
     st.header("Average Customers Served per Till (30-min slots)")
 
-    if 'TRN_DATE' not in df.columns or 'STORE_NAME' not in df.columns:
-        st.warning("Missing TRN_DATE or STORE_NAME")
+    if 'TRN_DATE' not in df.columns:
+        st.warning("Missing TRN_DATE")
         return
 
     d = df.copy()
+    d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
+    d = d.dropna(subset=['TRN_DATE'])
 
     # --- 1) Build time intervals ---
     start_time = pd.Timestamp("00:00:00")
-    intervals = [(start_time + timedelta(minutes=30 * i)).time() for i in range(48)]
+    intervals = [(start_time + timedelta(minutes=30*i)).time() for i in range(48)]
     col_labels = [f"{t.hour:02d}:{t.minute:02d}" for t in intervals]
 
     # --- 2) Customer counts (earliest receipt per till) ---
-    d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-    d = d.dropna(subset=['TRN_DATE'])
-    if d.empty:
-        st.info("No transaction data")
-        return
-
-    for c in ['STORE_CODE', 'TILL', 'SESSION', 'RCT']:
+    for c in ['STORE_CODE','TILL','SESSION','RCT']:
         if c not in d.columns:
-            st.warning("Missing required columns for CUST_CODE (STORE_CODE, TILL, SESSION, RCT)")
+            st.warning("Missing required columns for computing CUST_CODE")
             return
         d[c] = d[c].astype(str).fillna('').str.strip()
 
-    if 'CUST_CODE' not in d.columns:
-        d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
-    else:
-        # If mostly empty, rebuild
-        if not d['CUST_CODE'].astype(str).str.strip().astype(bool).any():
-            d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
-
+    d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
     d['TRN_DATE_ONLY'] = d['TRN_DATE'].dt.date
 
     first_touch = (
-        d.groupby(['STORE_NAME', 'TRN_DATE_ONLY', 'CUST_CODE'], as_index=False)['TRN_DATE']
-         .min()
+        d.groupby(['STORE_NAME','TRN_DATE_ONLY','CUST_CODE'], as_index=False)['TRN_DATE'].min()
     )
-    if first_touch.empty:
-        st.info("No customer data")
-        return
-
-    first_touch['TIME_INTERVAL'] = first_touch['TRN_DATE'].dt.floor('30T')
+    first_touch['TIME_INTERVAL'] = first_touch['TRN_DATE'].dt.floor('30min')
     first_touch['TIME_ONLY'] = first_touch['TIME_INTERVAL'].dt.time
 
     customer_counts = (
-        first_touch.groupby(['STORE_NAME', 'TIME_ONLY'])['CUST_CODE']
-        .nunique()
-        .reset_index(name='CUSTOMERS')
+        first_touch.groupby(['STORE_NAME','TIME_ONLY'])['CUST_CODE']
+        .nunique().reset_index(name='CUSTOMERS')
     )
-    if customer_counts.empty:
-        st.info("No customer counts available")
-        return
-
     cust_pivot = customer_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='CUSTOMERS').fillna(0)
     for t in intervals:
         if t not in cust_pivot.columns:
@@ -886,39 +833,26 @@ def avg_customers_per_till(df):
     # --- 3) Till counts ---
     d['TILL'] = d['TILL'].astype(str).fillna('').str.strip()
     d['STORE_CODE'] = d['STORE_CODE'].astype(str).fillna('').str.strip()
-    if 'Till_Code' not in d.columns:
-        d['Till_Code'] = d['TILL'] + '-' + d['STORE_CODE']
-
-    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
+    d['Till_Code'] = d['TILL'] + '-' + d['STORE_CODE']
+    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30min')
     d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
 
     till_counts = (
-        d.groupby(['STORE_NAME', 'TIME_ONLY'])['Till_Code']
-        .nunique()
-        .reset_index(name='TILLS')
+        d.groupby(['STORE_NAME','TIME_ONLY'])['Till_Code']
+        .nunique().reset_index(name='TILLS')
     )
-    if till_counts.empty:
-        st.info("No till usage data")
-        return
-
     till_pivot = till_counts.pivot(index='STORE_NAME', columns='TIME_ONLY', values='TILLS').fillna(0)
     for t in intervals:
         if t not in till_pivot.columns:
             till_pivot[t] = 0
     till_pivot = till_pivot[intervals]
 
-    # Align indices
-    cust_pivot, till_pivot = cust_pivot.align(till_pivot, join='inner', axis=0)
-    if cust_pivot.empty or till_pivot.empty:
-        st.info("Insufficient overlapping data to compute ratio")
-        return
-
     # --- 4) Calculate and round up Customers per Till ---
     ratio_matrix = cust_pivot / till_pivot.replace(0, np.nan)
     ratio_matrix = np.ceil(ratio_matrix).fillna(0).astype(int)
 
     if ratio_matrix.empty:
-        st.info("No ratio data")
+        st.info("No data")
         return
 
     ratio_matrix['MAX_RATIO'] = ratio_matrix.max(axis=1)
@@ -926,8 +860,9 @@ def avg_customers_per_till(df):
     max_vals = ratio_matrix['MAX_RATIO']
     ratio_data = ratio_matrix.drop(columns=['MAX_RATIO']).values
 
+    # --- 5) Plot the heatmap ---
     colorscale = [
-        [0.0,  '#E6E6E6'],
+        [0.0,  '#E6E6E6'],   # 0 = gray
         [0.001,'#e0f3db'],
         [0.25, '#a8ddb5'],
         [0.50, '#43a2ca'],
@@ -947,36 +882,32 @@ def avg_customers_per_till(df):
         color_continuous_scale=colorscale,
         zmin=0,
         zmax=zmax,
-        labels=dict(
-            x="Time Interval (30 min)",
-            y="Store Name",
-            color="Customers per Till"
-        )
+        labels=dict(x="Time Interval (30 min)", y="Store Name", color="Customers per Till")
     )
+
     fig.update_xaxes(side='top')
 
-    # Max labels on the left
+    # Add max labels on the left
     for i, val in enumerate(max_vals):
         fig.add_annotation(
             x=-0.6, y=i,
-            text=f"{int(val)}",
+            text=f"{val}",
             showarrow=False,
-            xanchor='right',
-            yanchor='middle',
+            xanchor='right', yanchor='middle',
             font=dict(size=11, color='black')
         )
 
+    # Header for max column
     fig.add_annotation(
         x=-0.6, y=-1,
         text="<b>MAX</b>",
         showarrow=False,
-        xanchor='right',
-        yanchor='top',
+        xanchor='right', yanchor='top',
         font=dict(size=12, color='black')
     )
 
     fig.update_layout(
-        title="Customers Served per Till",
+        title="Customers Served per Till ",
         xaxis_title="Time of Day",
         yaxis_title="Store Name",
         height=max(600, 25 * len(ratio_matrix.index)),
@@ -986,10 +917,9 @@ def avg_customers_per_till(df):
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # Summary table
     pivot_totals = pd.DataFrame({
         'STORE_NAME': ratio_matrix.index,
-        'MAX_CUSTOMERS_PER_TILL': max_vals.astype(int).values
+        'MAX_CUSTOMERS_PER_TILL': max_vals.astype(int)
     })
     format_and_display(
         pivot_totals,
@@ -1001,8 +931,8 @@ def avg_customers_per_till(df):
 def store_customer_traffic_storewise(df):
     st.header("Store Customer Traffic (per Department)")
 
-    if 'TRN_DATE' not in df.columns or 'STORE_NAME' not in df.columns or 'DEPARTMENT' not in df.columns:
-        st.warning("Missing TRN_DATE, STORE_NAME or DEPARTMENT")
+    if 'TRN_DATE' not in df.columns or 'STORE_NAME' not in df.columns:
+        st.warning("Missing TRN_DATE or STORE_NAME")
         return
 
     d = df.copy()
@@ -1010,47 +940,46 @@ def store_customer_traffic_storewise(df):
     d = d.dropna(subset=['TRN_DATE']).copy()
 
     # Ensure CUST_CODE
-    for col in ['STORE_CODE', 'TILL', 'SESSION', 'RCT']:
+    for col in ['STORE_CODE','TILL','SESSION','RCT']:
         if col in d.columns:
             d[col] = d[col].astype(str).fillna('').str.strip()
     if 'CUST_CODE' not in d.columns:
-        if all(c in d.columns for c in ['STORE_CODE', 'TILL', 'SESSION', 'RCT']):
-            d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
-        else:
-            st.warning("Missing components for CUST_CODE")
+        if not all(c in d.columns for c in ['STORE_CODE','TILL','SESSION','RCT']):
+            st.warning("Missing columns to build CUST_CODE")
             return
+        d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
 
-    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
+    d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30min')
     d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
 
     # Time grid
     start_time = pd.Timestamp("00:00:00")
-    intervals = [(start_time + timedelta(minutes=30 * i)).time() for i in range(48)]
+    intervals = [(start_time + timedelta(minutes=30*i)).time() for i in range(48)]
     col_labels = [f"{t.hour:02d}:{t.minute:02d}" for t in intervals]
 
-    # Helper per branch
     def build_branch_pivot(branch_name: str):
         branch_df = d[d['STORE_NAME'] == branch_name]
-        if branch_df.empty:
-            return np.array([]), [], [], 0
         tmp = (
-            branch_df.groupby(['DEPARTMENT', 'TIME_ONLY'])['CUST_CODE']
+            branch_df.groupby(['DEPARTMENT','TIME_ONLY'])['CUST_CODE']
             .nunique()
             .reset_index(name='Unique_Customers')
         )
-        if tmp.empty:
-            return np.array([]), [], [], branch_df['CUST_CODE'].nunique()
+
         pivot = tmp.pivot(index='DEPARTMENT', columns='TIME_ONLY', values='Unique_Customers').fillna(0)
         for t in intervals:
             if t not in pivot.columns:
                 pivot[t] = 0
         pivot = pivot[intervals]
+
         pivot['TOTAL'] = pivot.sum(axis=1)
         pivot = pivot.sort_values('TOTAL', ascending=False)
         totals = pivot['TOTAL'].astype(int).tolist()
         y_labels = pivot.index.tolist()
         mat = pivot.drop(columns=['TOTAL']).values
+
+        # total customers (unique CUST_CODE) in that store
         total_customers = branch_df['CUST_CODE'].nunique()
+
         return mat, y_labels, totals, total_customers
 
     branches = sorted(d['STORE_NAME'].dropna().unique().tolist())
@@ -1062,12 +991,7 @@ def store_customer_traffic_storewise(df):
     global_zmax = 1
     for b in branches:
         mat, y_labels, totals, total_customers = build_branch_pivot(b)
-        branch_data[b] = {
-            'z': mat,
-            'y': y_labels,
-            'totals': totals,
-            'total_customers': total_customers
-        }
+        branch_data[b] = {'z': mat, 'y': y_labels, 'totals': totals, 'total_customers': total_customers}
         if mat.size:
             global_zmax = max(global_zmax, int(np.max(mat)))
 
@@ -1076,10 +1000,6 @@ def store_customer_traffic_storewise(df):
     y0 = branch_data[init_branch]['y']
     totals0 = branch_data[init_branch]['totals']
     total_customers0 = branch_data[init_branch]['total_customers']
-
-    if z0.size == 0:
-        st.info("No department traffic data")
-        return
 
     colorscale = [
         [0.0,  '#E6E6E6'],
@@ -1101,6 +1021,7 @@ def store_customer_traffic_storewise(df):
         zmax=global_zmax,
         labels=dict(x="Time of Day", y="Department", color="Unique Customers")
     )
+
     fig.update_xaxes(side='top')
 
     def make_total_annotations(totals, y_labels):
@@ -1128,18 +1049,13 @@ def store_customer_traffic_storewise(df):
         annotations=make_total_annotations(totals0, y0)
     )
 
-    # Dropdown for branches inside the figure
     buttons = []
     for b in branches:
         z = branch_data[b]['z']
         y = branch_data[b]['y']
         totals = branch_data[b]['totals']
         total_customers = branch_data[b]['total_customers']
-        new_height = max(600, 25 * len(y)) if len(y) > 0 else 600
-
-        if z.size == 0:
-            # Skip branches without matrix
-            continue
+        new_height = max(600, 25 * len(y))
 
         buttons.append(dict(
             label=b,
@@ -1154,23 +1070,21 @@ def store_customer_traffic_storewise(df):
             ]
         ))
 
-    if buttons:
-        fig.update_layout(
-            updatemenus=[dict(
-                type='dropdown',
-                x=0, xanchor='left',
-                y=1.12, yanchor='top',
-                buttons=buttons,
-                direction='down',
-                showactive=True
-            )]
-        )
+    fig.update_layout(
+        updatemenus=[dict(
+            type='dropdown',
+            x=0, xanchor='left',
+            y=1.12, yanchor='top',
+            buttons=buttons,
+            direction='down',
+            showactive=True
+        )]
+    )
 
     st.plotly_chart(fig, use_container_width=True)
 
 def customer_traffic_departmentwise(df):
-    # Uses the same implementation as Store Customer Traffic Storewise
-    st.header("Customer Traffic — Departmentwise (branch selectable)")
+    # Same engine as Store Customer Traffic Storewise
     store_customer_traffic_storewise(df)
 
 def cashiers_performance(df):
@@ -1179,6 +1093,8 @@ def cashiers_performance(df):
         st.warning("Missing required columns for cashier performance")
         return
     d = df.copy()
+    d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
+    d = d.dropna(subset=['TRN_DATE'])
     receipt_duration = d.groupby(['STORE_NAME', 'CUST_CODE'], as_index=False).agg(
         Start_Time=('TRN_DATE', 'min'),
         End_Time=('TRN_DATE', 'max')
@@ -1197,9 +1113,6 @@ def cashiers_performance(df):
     )
     cashier_summary['Avg_Serve_Min'] = (cashier_summary['Avg_Duration_Sec'] / 60).round(1)
     branches = sorted(cashier_summary['STORE_NAME'].unique())
-    if not branches:
-        st.info("No cashier data")
-        return
     branch = st.selectbox("Select Branch for Cashier Performance", branches)
     dfb = cashier_summary[cashier_summary['STORE_NAME'] == branch].sort_values('Avg_Serve_Min')
     if dfb.empty:
@@ -1235,26 +1148,18 @@ def till_usage(df):
     st.header("Till Usage")
     d = df.copy()
     if 'Till_Code' not in d.columns:
-        if not all(c in d.columns for c in ['TILL', 'STORE_CODE']):
-            st.warning("Missing TILL or STORE_CODE")
+        if not all(c in d.columns for c in ['TILL','STORE_CODE']):
+            st.warning("Missing TILL/STORE_CODE for Till_Code")
             return
         d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
-    if 'TIME_ONLY' not in d.columns:
-        if 'TRN_DATE' not in d.columns:
-            st.warning("Missing TRN_DATE")
-            return
-        d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-        d = d.dropna(subset=['TRN_DATE'])
-        d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30T')
-        d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
+    branches = sorted(d['STORE_NAME'].unique())
+    if not branches:
+        st.info("No branches")
+        return
+    branch = st.selectbox("Select Branch for Till Usage", branches)
     till_activity = d.groupby(['STORE_NAME', 'Till_Code', 'TIME_ONLY'], as_index=False).agg(
         Receipts=('CUST_CODE', 'nunique')
     )
-    branches = sorted(d['STORE_NAME'].unique())
-    if not branches:
-        st.info("No branches found")
-        return
-    branch = st.selectbox("Select Branch for Till Usage", branches)
     dfb = till_activity[till_activity['STORE_NAME'] == branch]
     if dfb.empty:
         st.info("No till activity")
@@ -1292,23 +1197,15 @@ def tax_compliance(df):
         'Compliant',
         'Non-Compliant'
     )
-    if 'Till_Code' not in d.columns:
-        if all(c in d.columns for c in ['TILL', 'STORE_CODE']):
-            d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
-        else:
-            st.warning("Missing TILL/STORE_CODE for Till_Code")
-            return
+    if 'Till_Code' not in d.columns and all(c in d.columns for c in ['TILL','STORE_CODE']):
+        d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
     store_till = d.groupby(
         ['STORE_NAME', 'Till_Code', 'Tax_Compliant'],
         as_index=False
     ).agg(Receipts=('CUST_CODE', 'nunique'))
-    branches = sorted(d['STORE_NAME'].unique())
-    if not branches:
-        st.info("No branches")
-        return
     branch = st.selectbox(
         "Select Branch for Tax Compliance",
-        branches
+        sorted(d['STORE_NAME'].unique())
     )
     dfb = store_till[store_till['STORE_NAME'] == branch]
     if dfb.empty:
@@ -1365,7 +1262,7 @@ def tax_compliance(df):
     )
 
 # -----------------------
-# INSIGHTS implementations
+# INSIGHTS
 # -----------------------
 def customer_baskets_overview(df):
     st.header("Customer Baskets Overview")
@@ -1373,9 +1270,6 @@ def customer_baskets_overview(df):
     d = d.dropna(subset=['ITEM_NAME', 'CUST_CODE', 'STORE_NAME', 'DEPARTMENT'])
     d = d[~d['DEPARTMENT'].str.upper().eq('LUGGAGE & BAGS')]
     branches = sorted(d['STORE_NAME'].unique())
-    if not branches:
-        st.info("No data")
-        return
     branch = st.selectbox("Branch for comparison (branch vs global)", branches)
     metric = st.selectbox("Metric", ['QTY', 'NET_SALES'])
     top_x = st.number_input("Top X", min_value=5, max_value=200, value=10)
@@ -1533,7 +1427,7 @@ def category_overview(df):
 def branch_comparison(df):
     st.header("Branch Comparison")
     branches = sorted(df['STORE_NAME'].unique())
-    if not branches:
+    if len(branches) < 1:
         st.info("No branches")
         return
     col1, col2 = st.columns(2)
@@ -1602,9 +1496,6 @@ def product_performance(df):
     lookup = df[['ITEM_CODE', 'ITEM_NAME']].drop_duplicates().sort_values(
         ['ITEM_CODE', 'ITEM_NAME']
     )
-    if lookup.empty:
-        st.info("No items")
-        return
     options = (lookup['ITEM_CODE'] + ' — ' + lookup['ITEM_NAME']).tolist()
     choice = st.selectbox("Choose SKU (CODE — NAME)", options)
     item_code = choice.split('—')[0].strip()
@@ -1649,9 +1540,10 @@ def global_loyalty_overview(df):
         'TRN_DATE', 'STORE_NAME', 'CUST_CODE',
         'LOYALTY_CUSTOMER_CODE', 'NET_SALES'
     ]
-    if not all(c in df.columns for c in required):
+    missing = [c for c in required if c not in df.columns]
+    if missing:
         st.warning(
-            f"Missing required columns for Global Loyalty Overview: {required}"
+            f"Missing required columns for Global Loyalty Overview: {missing}"
         )
         return
 
@@ -1671,10 +1563,6 @@ def global_loyalty_overview(df):
         .replace({'nan': '', 'NaN': '', 'None': ''})
         .str.len() > 0
     ].copy()
-
-    if dfL.empty:
-        st.info("No loyalty data")
-        return
 
     receipts = (
         dfL.groupby(
@@ -1697,10 +1585,6 @@ def global_loyalty_overview(df):
     per_branch_multi = per_branch_multi[
         per_branch_multi['Baskets_in_Store'] > 1
     ]
-
-    if per_branch_multi.empty:
-        st.info("No loyal customers with >1 baskets per branch")
-        return
 
     overview = per_branch_multi.groupby(
         'STORE_NAME', as_index=False
@@ -1753,14 +1637,10 @@ def branch_loyalty_overview(df):
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
     d = d[
         d['LOYALTY_CUSTOMER_CODE']
-        .astype(str)
-        .str.replace('nan', '')
+        .replace('nan', '')
         .str.strip()
         .astype(bool)
     ]
-    if d.empty:
-        st.info("No loyalty data")
-        return
     receipts = d.groupby(
         ['STORE_NAME', 'CUST_CODE', 'LOYALTY_CUSTOMER_CODE'],
         as_index=False
@@ -1769,9 +1649,6 @@ def branch_loyalty_overview(df):
         First_Time=('TRN_DATE', 'min')
     )
     stores = sorted(receipts['STORE_NAME'].unique())
-    if not stores:
-        st.info("No stores")
-        return
     store = st.selectbox("Select Branch", stores)
     per_store = receipts[receipts['STORE_NAME'] == store].groupby(
         'LOYALTY_CUSTOMER_CODE', as_index=False
@@ -1786,9 +1663,6 @@ def branch_loyalty_overview(df):
         ['Baskets_in_Store', 'Total_Value_in_Store'],
         ascending=False
     )
-    if per_store.empty:
-        st.info("No loyal customers with >1 baskets in this branch")
-        return
     format_and_display(
         per_store,
         numeric_cols=['Baskets_in_Store', 'Total_Value_in_Store'],
@@ -1809,14 +1683,10 @@ def customer_loyalty_overview(df):
     d = df.copy()
     d = d[
         d['LOYALTY_CUSTOMER_CODE']
-        .astype(str)
-        .str.replace('nan', '')
+        .replace('nan', '')
         .str.strip()
         .astype(bool)
     ]
-    if d.empty:
-        st.info("No loyalty data")
-        return
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
     receipts = d.groupby(
         ['STORE_NAME', 'CUST_CODE', 'LOYALTY_CUSTOMER_CODE'],
@@ -1836,7 +1706,7 @@ def customer_loyalty_overview(df):
         ]['LOYALTY_CUSTOMER_CODE'].unique()
     )
     if not customers:
-        st.info("No loyalty customers with >1 stores visited")
+        st.info("No loyalty customers with >1 baskets found")
         return
     cust = st.selectbox(
         "Select Loyalty Customer (multi-store)",
@@ -1894,7 +1764,6 @@ def global_pricing_overview(df):
         return
     d = df.copy()
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-    d = d.dropna(subset=['TRN_DATE'])
     d['DATE'] = d['TRN_DATE'].dt.date
     grp = d.groupby(
         ['STORE_NAME', 'DATE', 'ITEM_CODE', 'ITEM_NAME'],
@@ -1980,6 +1849,7 @@ def branch_pricing_overview(df):
         st.info("No branches available in data")
         return
     branch = st.selectbox("Select Branch", branches)
+
     if not branch:
         st.info("Select a branch to proceed")
         return
@@ -2124,10 +1994,7 @@ def branch_pricing_overview(df):
     for c in optional:
         if c in receipts_detail.columns:
             receipt_cols.append(c)
-    receipt_cols = [
-        c for c in receipt_cols
-        if c in receipts_detail.columns
-    ]
+    receipt_cols = [c for c in receipt_cols if c in receipts_detail.columns]
     receipts_detail = receipts_detail[
         receipt_cols
     ].sort_values(
@@ -2143,8 +2010,8 @@ def branch_pricing_overview(df):
     )
     st.info(
         f"Showing {len(receipts_detail):,} receipt rows for the "
-        f"affected item-days. Use the table search/filter "
-        f"in Streamlit to inspect specific receipts."
+        f"affected item-days. Use the table search/filter in "
+        f"Streamlit to inspect specific receipts."
     )
     with st.expander("Show full receipt details (expand)"):
         st.dataframe(
@@ -2181,7 +2048,6 @@ def global_refunds_overview(df):
     if 'CAP_CUSTOMER_CODE' in neg.columns:
         neg['Sale_Type'] = np.where(
             neg['CAP_CUSTOMER_CODE']
-            .astype(str)
             .str.replace('nan', '')
             .str.strip()
             .astype(bool),
@@ -2198,7 +2064,9 @@ def global_refunds_overview(df):
         Total_Count=('CUST_CODE', 'nunique')
     )
     format_and_display(
-        summary.sort_values('Total_Neg_Value'),
+        summary.sort_values(
+            'Total_Neg_Value'
+        ),
         numeric_cols=['Total_Neg_Value', 'Total_Count'],
         index_col='STORE_NAME',
         total_label='TOTAL'
@@ -2220,9 +2088,6 @@ def branch_refunds_overview(df):
         return
     branch = st.selectbox("Select Branch", branches)
     dfb = neg[neg['STORE_NAME'] == branch]
-    if dfb.empty:
-        st.info("No negative receipts for this branch")
-        return
     agg = dfb.groupby(
         ['STORE_NAME', 'CUST_CODE'],
         as_index=False
@@ -2242,7 +2107,7 @@ def branch_refunds_overview(df):
 # Main App
 # -----------------------
 def main():
-    st.title("Superdeck — Streamlit edition (Optimized)")
+    st.title("Superdeck — Streamlit edition (Optimized, Clean 30-min)")
 
     raw_df = smart_load()
     if raw_df is None:
