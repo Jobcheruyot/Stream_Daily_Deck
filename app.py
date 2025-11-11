@@ -2242,7 +2242,7 @@ def main():
             ins_items[11]: branch_pricing_overview,
             ins_items[12]: global_refunds_overview,
             ins_items[13]: branch_refunds_overview,
-            ins_items[14]: Basket Affinity — Promo Tagging
+            ins_items[14]: Basket Affinity — Promo Tagging,
         }
         func = mapping.get(choice)
         if func:
