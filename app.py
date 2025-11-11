@@ -10,7 +10,6 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Hide Streamlit default header, footer, and hamburger menu
 # --- UI Clean-up & Sidebar Positioning ---
 
-"""
 st.markdown(custom_style, unsafe_allow_html=True)
 
 # -----------------------
