@@ -1327,22 +1327,38 @@ def customer_baskets_overview(df):
         index_col='ITEM_NAME',
         total_label='TOTAL'
     )
-    missing = set(global_top['ITEM_NAME']) - set(branch_top['ITEM_NAME'])
-    if missing:
-        st.subheader(
-            f"Items in Global Top {top_x} but missing/underperforming in {branch}"
+    # --- Items in Global Top X but Missing/Underperforming in Y (Zero Sales Only) ---
+    # Only show items where the selected branch has ZERO NET_SALES (or no record).
+    if 'NET_SALES' in branch_df.columns:
+        branch_item_sales = (
+            branch_df.groupby('ITEM_NAME', as_index=False)['NET_SALES']
+            .sum()
+            .rename(columns={'NET_SALES': 'Branch_NET_SALES'})
         )
-        missing_df = global_top[global_top['ITEM_NAME'].isin(missing)].reset_index(
-            drop=True
-        )
-        format_and_display(
-            missing_df,
-            numeric_cols=['Count_of_Baskets', 'QTY', 'NET_SALES'],
-            index_col='ITEM_NAME',
-            total_label='TOTAL'
-        )
+
+        comp = global_top.merge(branch_item_sales, on='ITEM_NAME', how='left')
+        comp['Branch_NET_SALES'] = comp['Branch_NET_SALES'].fillna(0)
+
+        zero_sales = comp[comp['Branch_NET_SALES'] == 0].copy()
+
+        if not zero_sales.empty:
+            st.subheader(
+                f'Items in Global Top {top_x} but Missing/Underperforming in "{branch}" (Zero Sales Only)'
+            )
+            cols = ['#', 'ITEM_NAME', 'Count_of_Baskets', 'QTY', 'NET_SALES', 'Branch_NET_SALES']
+            zero_sales = zero_sales[cols].reset_index(drop=True)
+            format_and_display(
+                zero_sales,
+                numeric_cols=['Count_of_Baskets', 'QTY', 'NET_SALES', 'Branch_NET_SALES'],
+                index_col='ITEM_NAME',
+                total_label='TOTAL'
+            )
+        else:
+            st.success(
+                f'No items in Global Top {top_x} with zero sales in "{branch}".'
+            )
     else:
-        st.success(f"All top {top_x} global items also present in {branch}")
+        st.info("NET_SALES column missing — cannot compute zero-sales underperformance view.")
 
 def global_category_overview_sales(df):
     st.header("Global Category Overview — Sales")
