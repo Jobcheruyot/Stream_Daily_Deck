@@ -2107,7 +2107,7 @@ def branch_refunds_overview(df):
 # Main App
 # -----------------------
 def main():
-    st.title("Superdeck — Streamlit edition (Optimized, Clean 30-min)")
+    st.title("DailyDeck: The Story Behind the Numbers")
 
     raw_df = smart_load()
     if raw_df is None:
