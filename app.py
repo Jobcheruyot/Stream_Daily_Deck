@@ -2355,6 +2355,7 @@ def basket_affinity_promo_tagging(df):
         if 'QTY' in sample.columns:
             cols.append('QTY')
         st.dataframe(sample[cols], use_container_width=True)
+        
                 func = mapping.get(choice)
         if func:
             func(df)
