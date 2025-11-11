@@ -2245,14 +2245,7 @@ mapping = {
     "Basket Affinity — Promo Tagging": basket_affinity_promo_tagging  # ✅ correct entry
 }
 
-        func = mapping.get(choice)
-        if func:
-            func(df)
-        else:
-            st.write("Not implemented yet")
 
-if __name__ == "__main__":
-    main()
     # ===============================================================
 # 🧺 INSIGHT: Basket Affinity — Promo Tagging
 # ===============================================================
@@ -2362,4 +2355,12 @@ def basket_affinity_promo_tagging(df):
         if 'QTY' in sample.columns:
             cols.append('QTY')
         st.dataframe(sample[cols], use_container_width=True)
+                func = mapping.get(choice)
+        if func:
+            func(df)
+        else:
+            st.write("Not implemented yet")
+
+if __name__ == "__main__":
+    main()
 
