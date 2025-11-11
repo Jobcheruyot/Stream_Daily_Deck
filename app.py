@@ -5,53 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 
-st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 
-import streamlit as st
-
-st.set_page_config(
-    page_title="DailyDeck",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# --- Hide Streamlit UI elements (top-right + bottom-right) ---
-hide_streamlit_style = """
-    <style>
-    /* Hide Streamlit default header, menu and footer */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-
-    /* Hide top-right toolbar (Share, GitHub, etc.) */
-    [data-testid="stToolbar"] {visibility: hidden !important;}
-    [data-testid="stActionButtonIcon"] {visibility: hidden !important;}
-
-    /* Hide bottom-right floating buttons (Streamlit, Chat, Feedback) */
-    [data-testid="stDecoration"] {visibility: hidden !important;}
-    [data-testid="stStatusWidget"] {visibility: hidden !important;}
-    [data-testid="stBottomButton"] {visibility: hidden !important;}
-    [data-testid="stBottomContainer"] {visibility: hidden !important;}
-
-    /* Hide “Made with Streamlit” branding */
-    .stApp [class*="st-emotion-cache"] button[kind="icon"] {display: none !important;}
-
-    /* Hide red crown (Streamlit Premium badge) */
-    .stApp div[data-testid="stDecorationContainer"] {display: none !important;}
-
-    /* Optional: clean white background */
-    .stApp {background-color: #FFFFFF;}
-    </style>
-"""
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
-# --- Title ---
-st.markdown(
-    "<h1 style='text-align:center; color:#2E86C1;'>DailyDeck</h1>"
-    "<h4 style='text-align:center; color:gray;'>The Story Behind the Numbers</h4>",
-    unsafe_allow_html=True
-)
 
 # --- Clean UI (hide Streamlit chrome: top menu, header/footer, bottom icons) ---
 CLEAN_UI_CSS = """
