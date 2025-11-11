@@ -8,6 +8,37 @@ from datetime import timedelta
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 # Hide Streamlit default header, footer, and hamburger menu
+# --- UI Clean-up & Sidebar Positioning ---
+custom_style = """
+    <style>
+        /* Hide Streamlit's default header, toolbar, and footer */
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        [data-testid="stToolbar"] {visibility: hidden !important;}
+
+        /* Move the sidebar toggle (collapsedControl) to the bottom center */
+        [data-testid="collapsedControl"] {
+            position: fixed !important;
+            bottom: 10px !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            z-index: 10000 !important;
+            background-color: #f0f2f6 !important;
+            border-radius: 20px !important;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            padding: 4px 10px !important;
+            font-size: 18px !important;
+            transition: all 0.3s ease-in-out;
+        }
+
+        /* Subtle hover effect for the toggle button */
+        [data-testid="collapsedControl"]:hover {
+            background-color: #e0e4eb !important;
+            transform: translateX(-50%) scale(1.1) !important;
+        }
+    </style>
+"""
+st.markdown(custom_style, unsafe_allow_html=True)
 
 
 
