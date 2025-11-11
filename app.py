@@ -2244,7 +2244,12 @@ mapping = {
     "Branch Refunds Overview": branch_refunds_overview,
     "Basket Affinity — Promo Tagging": basket_affinity_promo_tagging  # ✅ correct entry
 }
-                func = mapping.get(choice)
+
+func = mapping.get(choice)   # 👈 unindented to the same level as 'mapping = {'
+if func:
+    func(df)
+else:
+    st.write("Not implemented yet")
 
     # ===============================================================
 # 🧺 INSIGHT: Basket Affinity — Promo Tagging
