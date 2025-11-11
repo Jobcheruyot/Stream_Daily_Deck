@@ -29,6 +29,22 @@ hide_default_format = """
 """
 st.markdown(hide_default_format, unsafe_allow_html=True)
 
+hide_st_style = """
+    <style>
+        header[data-testid="stHeader"] {display: none !important;}
+        div[data-testid="stToolbar"] {display: none !important;}
+        footer, div[data-testid="stFooter"] {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0px !important;
+        }
+        div.block-container:has(footer) {
+            padding-bottom: 0 !important;
+            margin-bottom: 0 !important;
+        }
+    </style>
+"""
+st.markdown(hide_st_style, unsafe_allow_html=True)
 
 
 # -----------------------
