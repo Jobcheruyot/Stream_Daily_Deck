@@ -1509,48 +1509,178 @@ def branch_comparison(df):
 
 def product_performance(df):
     st.header("Product Performance")
-    if 'ITEM_CODE' not in df.columns:
-        st.warning("Missing ITEM_CODE")
+
+    required = ['ITEM_CODE','ITEM_NAME','CUST_CODE','STORE_NAME','QTY','CATEGORY','DEPARTMENT']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        st.warning(f"Missing required columns: {missing}")
         return
-    lookup = df[['ITEM_CODE', 'ITEM_NAME']].drop_duplicates().sort_values(
-        ['ITEM_CODE', 'ITEM_NAME']
-    )
+
+    # Clean
+    d = df.copy()
+    for c in ['ITEM_CODE','ITEM_NAME','CUST_CODE','STORE_NAME','CATEGORY','DEPARTMENT']:
+        d[c] = d[c].astype(str).str.strip()
+    d['QTY'] = pd.to_numeric(d['QTY'], errors='coerce').fillna(0)
+
+    # SKU picker
+    lookup = d[['ITEM_CODE','ITEM_NAME']].drop_duplicates().sort_values(['ITEM_CODE','ITEM_NAME'])
     options = (lookup['ITEM_CODE'] + ' — ' + lookup['ITEM_NAME']).tolist()
     choice = st.selectbox("Choose SKU (CODE — NAME)", options)
+
+    if not choice:
+        return
+
     item_code = choice.split('—')[0].strip()
-    item_data = df[df['ITEM_CODE'] == item_code]
+    item_data = d[d['ITEM_CODE'] == item_code]
     if item_data.empty:
         st.info("No data for this SKU")
         return
-    any_name = item_data['ITEM_NAME'].iloc[0]
-    st.subheader(f"SKU: {item_code} — {any_name}")
-    baskets = item_data[['STORE_NAME', 'CUST_CODE']].drop_duplicates().assign(
-        Has_Item=1
+
+    item_name = item_data['ITEM_NAME'].iloc[0]
+    item_cat = item_data['CATEGORY'].mode().iloc[0]
+    item_dept = item_data['DEPARTMENT'].mode().iloc[0]
+
+    st.subheader(f"SKU: {item_code} — {item_name}")
+    st.caption(f"Category: {item_cat} | Department: {item_dept}")
+
+    # --------------------------
+    # Basket Computations
+    # --------------------------
+    store_total_customers = d.groupby('STORE_NAME')['CUST_CODE'].nunique()
+    cat_pool = d[d['CATEGORY'] == item_cat].groupby('STORE_NAME')['CUST_CODE'].nunique()
+    dept_pool = d[d['DEPARTMENT'] == item_dept].groupby('STORE_NAME')['CUST_CODE'].nunique()
+
+    basket_item_counts = (
+        d.groupby(['STORE_NAME','CUST_CODE'])['ITEM_CODE'].nunique()
+         .rename('Distinct_SKUs').reset_index()
     )
-    basket_counts = baskets.groupby('STORE_NAME').agg(
-        Baskets_With_Item=('Has_Item', 'sum')
-    ).reset_index()
-    total_qty = item_data.groupby('STORE_NAME')['QTY'].sum().reset_index().rename(
-        columns={'QTY': 'Total_QTY_Sold_Branch'}
+
+    baskets_with_item = (
+        item_data[['STORE_NAME','CUST_CODE']].drop_duplicates().assign(Has_Item=1)
     )
-    summary = (
-        basket_counts.merge(total_qty, on='STORE_NAME', how='left')
+
+    with_comp = baskets_with_item.merge(
+        basket_item_counts,
+        on=['STORE_NAME','CUST_CODE'],
+        how='left'
+    )
+    with_comp['Only_Item'] = (with_comp['Distinct_SKUs'] == 1).astype(int)
+    with_comp['With_Others'] = (with_comp['Distinct_SKUs'] > 1).astype(int)
+
+    # store-level summaries
+    max_qty_per_basket = (
+        item_data.groupby(['STORE_NAME','CUST_CODE'])['QTY'].sum()
+                 .groupby('STORE_NAME').max()
+    )
+    total_qty_per_store = item_data.groupby('STORE_NAME')['QTY'].sum()
+
+    store_summary = (
+        with_comp.groupby('STORE_NAME', as_index=False)
+                 .agg(
+                    Baskets_With_Item=('Has_Item','sum'),
+                    Only_Item_Baskets=('Only_Item','sum'),
+                    With_Other_Items=('With_Others','sum')
+                 )
+    )
+
+    store_summary = (
+        store_summary
+        .merge(max_qty_per_basket.rename('Highest_QTY_In_Basket'), on='STORE_NAME', how='left')
+        .merge(total_qty_per_store.rename('Total_QTY_Sold_Branch'), on='STORE_NAME', how='left')
         .fillna(0)
-        .sort_values('Baskets_With_Item', ascending=False)
     )
-    format_and_display(
-        summary,
-        numeric_cols=['Baskets_With_Item', 'Total_QTY_Sold_Branch'],
-        index_col='STORE_NAME',
-        total_label='TOTAL'
+
+    # global totals
+    g_baskets = store_summary['Baskets_With_Item'].sum()
+    g_only = store_summary['Only_Item_Baskets'].sum()
+    g_with = store_summary['With_Other_Items'].sum()
+
+    g_only_pct = round(100 * g_only / g_baskets, 1) if g_baskets else 0
+    g_with_pct = round(100 * g_with / g_baskets, 1) if g_baskets else 0
+
+    g_store = int(store_total_customers.sum())
+    g_cat = int(cat_pool.sum())
+    g_dept = int(dept_pool.sum())
+
+    g_pct_store = round(100 * g_baskets / g_store, 1) if g_store else 0
+    g_pct_cat = round(100 * g_baskets / g_cat, 1) if g_cat else 0
+    g_pct_dept = round(100 * g_baskets / g_dept, 1) if g_dept else 0
+
+    # store percentages
+    per_store = store_summary.copy()
+
+    per_store['Only_Item_Baskets'] = (
+        (per_store['Only_Item_Baskets'] / per_store['Baskets_With_Item'] * 100)
+        .replace([np.nan, np.inf], 0).round(1)
     )
+    per_store['With_Other_Items'] = (
+        (per_store['With_Other_Items'] / per_store['Baskets_With_Item'] * 100)
+        .replace([np.nan, np.inf], 0).round(1)
+    )
+
+    per_store['Pct_of_Store_Customers'] = (
+        per_store['STORE_NAME'].map(store_total_customers)
+        .rdiv(per_store['Baskets_With_Item']) * 100
+    ).replace([np.nan, np.inf], 0).round(1)
+
+    per_store['Pct_of_Category_Customers'] = (
+        per_store['STORE_NAME'].map(cat_pool)
+        .rdiv(per_store['Baskets_With_Item']) * 100
+    ).replace([np.nan, np.inf], 0).round(1)
+
+    per_store['Pct_of_Department_Customers'] = (
+        per_store['STORE_NAME'].map(dept_pool)
+        .rdiv(per_store['Baskets_With_Item']) * 100
+    ).replace([np.nan, np.inf], 0).round(1)
+
+    per_store = per_store.sort_values('Baskets_With_Item', ascending=False)
+
+    # TOTAL row
+    total_row = pd.DataFrame([{
+        'STORE_NAME': 'TOTAL',
+        'Baskets_With_Item': g_baskets,
+        'Only_Item_Baskets': g_only_pct,
+        'With_Other_Items': g_with_pct,
+        'Highest_QTY_In_Basket': int(per_store['Highest_QTY_In_Basket'].max()),
+        'Total_QTY_Sold_Branch': total_qty_per_store.sum(),
+        'Pct_of_Store_Customers': g_pct_store,
+        'Pct_of_Category_Customers': g_pct_cat,
+        'Pct_of_Department_Customers': g_pct_dept
+    }])
+
+    final = pd.concat([total_row, per_store], ignore_index=True)
+    final.insert(0, '#', ['' if i == 0 else i for i in range(len(final))])
+
+    # formatting
+    final['Baskets_With_Item'] = final['Baskets_With_Item'].map('{:,.0f}'.format)
+    for col in ['Only_Item_Baskets','With_Other_Items',
+                'Pct_of_Store_Customers','Pct_of_Category_Customers','Pct_of_Department_Customers']:
+        final[col] = final[col].map(lambda x: f"{float(x):.1f}%")
+    for col in ['Highest_QTY_In_Basket','Total_QTY_Sold_Branch']:
+        final[col] = final[col].map('{:,.0f}'.format)
+
+    st.subheader("Store Breakdown")
+    st.dataframe(final, use_container_width=True)
+
+    # chart
+    chart_df = per_store[['STORE_NAME','Only_Item_Baskets','With_Other_Items']].melt(
+        id_vars='STORE_NAME',
+        var_name='Type',
+        value_name='Percent'
+    )
+    chart_df['Type'] = chart_df['Type'].map({
+        'Only_Item_Baskets': 'Only Item (%)',
+        'With_Other_Items': 'With Other Items (%)'
+    })
+
     fig = px.bar(
-        summary,
-        x='Baskets_With_Item',
-        y='STORE_NAME',
-        orientation='h',
-        title="Baskets with Item by Store"
+        chart_df,
+        x='Percent', y='STORE_NAME',
+        color='Type', orientation='h',
+        barmode='stack',
+        title=f"Stores — Basket Split (%) for {item_code} ({item_name})"
     )
+    fig.update_layout(height=max(420, 22*len(chart_df['STORE_NAME'].unique())))
     st.plotly_chart(fig, use_container_width=True)
 
 def global_loyalty_overview(df):
