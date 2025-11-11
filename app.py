@@ -2220,6 +2220,8 @@ def main():
             "Branch Pricing Overview",
             "Global Refunds Overview",
             "Branch Refunds Overview"
+            "Basket Affinity — Promo Tagging",
+
         ]
         choice = st.sidebar.selectbox(
             "Insights Subsection",
@@ -2239,7 +2241,8 @@ def main():
             ins_items[10]: global_pricing_overview,
             ins_items[11]: branch_pricing_overview,
             ins_items[12]: global_refunds_overview,
-            ins_items[13]: branch_refunds_overview
+            ins_items[13]: branch_refunds_overview,
+            ins_items[14]: Basket Affinity — Promo Tagging
         }
         func = mapping.get(choice)
         if func:
@@ -2249,3 +2252,113 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # ===============================================================
+# 🧺 INSIGHT: Basket Affinity — Promo Tagging
+# ===============================================================
+def basket_affinity_promo_tagging(df):
+    st.header("Basket Affinity — Promo Tagging")
+
+    required_cols = ['STORE_NAME', 'DEPARTMENT', 'ITEM_CODE', 'CUST_CODE']
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.warning(f"Missing required columns: {missing}")
+        return
+
+    d = df.copy()
+    for c in ['STORE_NAME', 'DEPARTMENT', 'ITEM_CODE', 'ITEM_NAME', 'CUST_CODE']:
+        if c in d.columns:
+            d[c] = d[c].astype(str).str.strip()
+
+    d = d[(d['CUST_CODE'] != '') & (d['ITEM_CODE'] != '')]
+    if d.empty:
+        st.info("No valid basket data after cleaning.")
+        return
+
+    stores = sorted(d['STORE_NAME'].dropna().unique().tolist())
+    selected_stores = st.multiselect("Store(s)", options=stores, default=stores)
+    if not selected_stores:
+        st.info("Select at least one store.")
+        return
+    d = d[d['STORE_NAME'].isin(selected_stores)]
+
+    depts = sorted(d['DEPARTMENT'].dropna().unique().tolist())
+    selected_depts = st.multiselect("Department(s)", options=depts, default=depts)
+    if not selected_depts:
+        st.info("Select at least one department.")
+        return
+    d = d[d['DEPARTMENT'].isin(selected_depts)]
+
+    if d.empty:
+        st.info("No data after applying filters.")
+        return
+
+    items = d[['ITEM_CODE', 'ITEM_NAME']].drop_duplicates().sort_values('ITEM_CODE')
+    items['LABEL'] = np.where(items['ITEM_NAME'].str.len() > 0,
+                              items['ITEM_CODE'] + " — " + items['ITEM_NAME'],
+                              items['ITEM_CODE'])
+    label_to_code = dict(zip(items['LABEL'], items['ITEM_CODE']))
+
+    selected_label = st.selectbox("Select base ITEM_CODE", options=items['LABEL'].tolist())
+    base_item = label_to_code[selected_label]
+
+    base_name = d.loc[d['ITEM_CODE'] == base_item, 'ITEM_NAME'].dropna().head(1).tolist()
+    if base_name:
+        st.markdown(f"**Base Item:** `{base_item}` — {base_name[0]}")
+
+    base_baskets = d.loc[d['ITEM_CODE'] == base_item, 'CUST_CODE'].unique()
+    if len(base_baskets) == 0:
+        st.info("Selected item not found in any basket under current filters.")
+        return
+
+    scoped = d[d['CUST_CODE'].isin(base_baskets)].copy()
+    others = scoped[scoped['ITEM_CODE'] != base_item].copy()
+    if others.empty:
+        st.info("No other items found in same baskets as this item.")
+        return
+
+    group_cols = ['ITEM_CODE', 'ITEM_NAME', 'DEPARTMENT']
+    cooc = (others.groupby(group_cols, as_index=False)
+            .agg(Baskets_Together=('CUST_CODE', 'nunique'),
+                 Total_Qty=('QTY', 'sum') if 'QTY' in others.columns else ('CUST_CODE', 'size')))
+
+    total_base_baskets = len(base_baskets)
+    cooc['Basket_Share_%'] = (cooc['Baskets_Together'] / total_base_baskets * 100).round(2)
+
+    item_total_baskets = (d.groupby('ITEM_CODE')['CUST_CODE'].nunique()
+                          .rename('Item_Total_Baskets').reset_index())
+    cooc = cooc.merge(item_total_baskets, on='ITEM_CODE', how='left')
+    cooc['Item_Customer_Share_%'] = np.where(
+        cooc['Item_Total_Baskets'] > 0,
+        (cooc['Baskets_Together'] / cooc['Item_Total_Baskets'] * 100).round(2),
+        0.0
+    )
+
+    cooc = cooc.sort_values(
+        ['Baskets_Together', 'Basket_Share_%', 'Item_Customer_Share_%'],
+        ascending=[False, False, False]
+    ).reset_index(drop=True)
+
+    st.markdown(f"- Baskets with `{base_item}`: **{total_base_baskets:,}**")
+    top_n = st.slider("Show Top N co-occurring items", 10, 200, 50)
+    cooc_view = cooc.head(top_n)
+
+    format_and_display(
+        cooc_view[['ITEM_CODE', 'ITEM_NAME', 'DEPARTMENT',
+                   'Baskets_Together', 'Basket_Share_%',
+                   'Item_Customer_Share_%', 'Total_Qty']],
+        numeric_cols=['Baskets_Together', 'Basket_Share_%',
+                      'Item_Customer_Share_%', 'Total_Qty'],
+        index_col='ITEM_CODE',
+        total_label='TOTAL'
+    )
+
+    with st.expander("🔎 View sample baskets"):
+        sample_n = st.slider("Number of sample baskets", 3, 50, 10)
+        sample_baskets = list(base_baskets)[:sample_n]
+        sample = scoped[scoped['CUST_CODE'].isin(sample_baskets)].copy()
+        sample = sample.sort_values(['CUST_CODE', 'ITEM_CODE'])
+        cols = ['CUST_CODE', 'STORE_NAME', 'DEPARTMENT', 'ITEM_CODE', 'ITEM_NAME']
+        if 'QTY' in sample.columns:
+            cols.append('QTY')
+        st.dataframe(sample[cols], use_container_width=True)
+
