@@ -6,6 +6,19 @@ import plotly.graph_objects as go
 from datetime import timedelta
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
+# Add the following at the very top of your Streamlit script, AFTER st.set_page_config
+
+import streamlit as st
+
+# Hide Streamlit default header and footer
+hide_st_style = """
+    <style>
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+"""
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
 
 # -----------------------
 # Data Loading & Caching
