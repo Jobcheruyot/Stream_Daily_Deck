@@ -7,6 +7,27 @@ from datetime import timedelta
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
+# Hide Streamlit default header, footer, and hamburger menu
+hide_default_format = """
+    <style>
+        /* Hide top header and footer */
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+
+        /* Hide the top-right "Share" and menu buttons */
+        [data-testid="stToolbar"] {visibility: hidden !important;}
+
+        /* Optional: make sidebar toggle centered vertically */
+        [data-testid="collapsedControl"] {
+            position: fixed;
+            top: 50%;
+            left: 0;
+            transform: translateY(-50%);
+            z-index: 9999;
+        }
+    </style>
+"""
+st.markdown(hide_default_format, unsafe_allow_html=True)
 
 
 
