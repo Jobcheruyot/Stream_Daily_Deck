@@ -7,8 +7,7 @@ from datetime import timedelta
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
-# Hide Streamlit default header, footer, and hamburger menu
-# --- UI Clean-up & Sidebar Positioning ---
+
 
 
 # -----------------------
@@ -190,10 +189,6 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None,
                 appended[col] = appended[col].map(
                     lambda v: f"{float(v):,.2f}" if pd.notna(v) and str(v) != '' else ''
                 )
-
-    # Ensure '#' rank column is string-only to avoid Arrow mixed-type issues
-    if '#' in appended.columns:
-        appended['#'] = appended['#'].astype(str)
 
     st.dataframe(appended, use_container_width=True)
 
@@ -1332,7 +1327,8 @@ def customer_baskets_overview(df):
         index_col='ITEM_NAME',
         total_label='TOTAL'
     )
-    # Underperforming items with zero sales in branch
+    # --- Items in Global Top X but Missing/Underperforming in Y (Zero Sales Only) ---
+    # Only show items where the selected branch has ZERO NET_SALES (or no record).
     if 'NET_SALES' in branch_df.columns:
         branch_item_sales = (
             branch_df.groupby('ITEM_NAME', as_index=False)['NET_SALES']
@@ -2127,7 +2123,7 @@ def branch_refunds_overview(df):
     )
 
 # -----------------------------------------
-# NEW INSIGHT: Basket Affinity — Promo Tagging
+# NEW: Basket Affinity — Promo Tagging
 # -----------------------------------------
 def basket_affinity_promo_tagging(df):
     st.header("Basket Affinity — Promo Tagging")
@@ -2139,12 +2135,11 @@ def basket_affinity_promo_tagging(df):
         return
 
     d = df.copy()
-    # Clean key fields
     for c in ['STORE_NAME', 'DEPARTMENT', 'ITEM_CODE', 'ITEM_NAME', 'CUST_CODE']:
         if c in d.columns:
             d[c] = d[c].astype(str).str.strip()
 
-    # Keep only valid baskets & items
+    # Keep only rows with non-empty basket id & item code
     d = d[
         d['CUST_CODE'].astype(str).str.strip().astype(bool)
         & d['ITEM_CODE'].astype(str).str.strip().astype(bool)
@@ -2159,7 +2154,7 @@ def basket_affinity_promo_tagging(df):
         "Store(s)",
         options=stores,
         default=stores,
-        help="Select one or more stores (default = all)."
+        help="Select one or more stores. Default is all."
     )
     if not selected_stores:
         st.info("Select at least one store.")
@@ -2172,7 +2167,7 @@ def basket_affinity_promo_tagging(df):
         "Department(s)",
         options=depts,
         default=depts,
-        help="Select one or more departments (default = all)."
+        help="Select one or more departments. Default is all."
     )
     if not selected_depts:
         st.info("Select at least one department.")
@@ -2183,7 +2178,7 @@ def basket_affinity_promo_tagging(df):
         st.info("No data after applying Store & Department filters.")
         return
 
-    # Base item picker
+    # Build item labels
     item_cols = ['ITEM_CODE']
     if 'ITEM_NAME' in d.columns:
         item_cols.append('ITEM_NAME')
@@ -2217,7 +2212,7 @@ def basket_affinity_promo_tagging(df):
     else:
         st.markdown(f"**Base Item:** `{base_item}`")
 
-    # All baskets that contain the base item
+    # Baskets containing base item
     base_baskets = d.loc[d['ITEM_CODE'] == base_item, 'CUST_CODE'].unique()
     if base_baskets.size == 0:
         st.info("Selected item not found in any basket under current filters.")
@@ -2248,13 +2243,12 @@ def basket_affinity_promo_tagging(df):
     else:
         cooc['Total_Qty'] = 0
 
-    # % of base-item baskets that contain this item
     total_base_baskets = len(base_baskets)
     cooc['Basket_Share_%'] = (
         cooc['Baskets_Together'] / total_base_baskets * 100
     ).round(2)
 
-    # Total baskets of each item in filtered universe
+    # Total baskets for each item (within filtered data)
     item_totals = (
         d.groupby('ITEM_CODE')['CUST_CODE']
         .nunique()
@@ -2262,7 +2256,6 @@ def basket_affinity_promo_tagging(df):
     )
     cooc = cooc.merge(item_totals, on='ITEM_CODE', how='left')
 
-    # % of this item's customers that also bought the base item
     cooc['Item_Customer_Share_%'] = np.where(
         cooc['Item_Total_Baskets'] > 0,
         (cooc['Baskets_Together'] / cooc['Item_Total_Baskets'] * 100).round(2),
@@ -2303,9 +2296,10 @@ def basket_affinity_promo_tagging(df):
         total_label='TOTAL'
     )
 
-    # Sample baskets explorer
     with st.expander("🔎 View sample baskets (exact composition)"):
         max_sample = int(min(50, len(base_baskets)))
+        if max_sample < 3:
+            max_sample = len(base_baskets)
         if max_sample == 0:
             st.info("No baskets to sample.")
             return
