@@ -2244,7 +2244,7 @@ mapping = {
     "Branch Refunds Overview": branch_refunds_overview,
     "Basket Affinity — Promo Tagging": basket_affinity_promo_tagging  # ✅ correct entry
 }
-
+                func = mapping.get(choice)
 
     # ===============================================================
 # 🧺 INSIGHT: Basket Affinity — Promo Tagging
@@ -2356,7 +2356,7 @@ def basket_affinity_promo_tagging(df):
             cols.append('QTY')
         st.dataframe(sample[cols], use_container_width=True)
         
-                func = mapping.get(choice)
+
         if func:
             func(df)
         else:
