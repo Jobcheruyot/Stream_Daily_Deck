@@ -11,38 +11,6 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 
 
 # -----------------------
-# Data Loading & Caching
-# -----------------------
-@st.cache_data
-def load_csv(path: str) -> pd.DataFrame:
-    return pd.read_csv(path, on_bad_lines='skip', low_memory=False)
-
-@st.cache_data
-def load_uploaded_file(contents: bytes) -> pd.DataFrame:
-    from io import BytesIO
-    return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
-
-def smart_load():
-    st.sidebar.markdown("### Upload data (CSV) or use default")
-    uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=['csv'])
-    if uploaded is not None:
-        with st.spinner("Parsing uploaded CSV..."):
-            df = load_uploaded_file(uploaded.getvalue())
-        st.sidebar.success("Loaded uploaded CSV")
-        return df
-
-    # try default path (optional)
-    default_path = "/content/DAILY_POS_TRN_ITEMS_2025-10-21.csv"
-    try:
-        with st.spinner(f"Loading default CSV: {default_path}"):
-            df = load_csv(default_path)
-        st.sidebar.info(f"Loaded default path: {default_path}")
-        return df
-    except Exception:
-        st.sidebar.warning("No default CSV found. Please upload a CSV to run the app.")
-        return None
-
-# -----------------------
 # Robust cleaning + derived columns (cached)
 # -----------------------
 @st.cache_data
