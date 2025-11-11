@@ -10,12 +10,13 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 
 import streamlit as st
 
+
 # Hide Streamlit default header and footer
 hide_st_style = """
-    <style>
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-    </style>
+<style>
+header {visibility: hidden;}
+div[data-testid="stFooter"] {display: none;}
+</style>
 """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
