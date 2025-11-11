@@ -7,6 +7,25 @@ from datetime import timedelta
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 
+# --- Clean UI (hide Streamlit chrome: top menu, header/footer, bottom icons) ---
+CLEAN_UI_CSS = """
+<style>
+/* Hide Streamlit built-in menu, header, footer */
+#MainMenu {visibility: hidden;}
+header {visibility: hidden;}
+footer {visibility: hidden;}
+
+/* Hide top-right toolbar / status / decoration */
+.stApp [data-testid="stToolbar"] {display: none !important;}
+.stApp [data-testid="stDecoration"] {display: none !important;}
+.stApp [data-testid="stStatusWidget"] {display: none !important;}
+
+/* Hide bottom container / feedback / floating elements */
+.stApp [data-testid="stBottomContainer"] {display: none !important;}
+</style>
+"""
+st.markdown(CLEAN_UI_CSS, unsafe_allow_html=True)
+
 # -----------------------
 # Data Loading & Caching
 # -----------------------
