@@ -2227,23 +2227,24 @@ def main():
             "Insights Subsection",
             ins_items
         )
-        mapping = {
-            ins_items[0]: customer_baskets_overview,
-            ins_items[1]: global_category_overview_sales,
-            ins_items[2]: global_category_overview_baskets,
-            ins_items[3]: supplier_contribution,
-            ins_items[4]: category_overview,
-            ins_items[5]: branch_comparison,
-            ins_items[6]: product_performance,
-            ins_items[7]: global_loyalty_overview,
-            ins_items[8]: branch_loyalty_overview,
-            ins_items[9]: customer_loyalty_overview,
-            ins_items[10]: global_pricing_overview,
-            ins_items[11]: branch_pricing_overview,
-            ins_items[12]: global_refunds_overview,
-            ins_items[13]: branch_refunds_overview,
-            ins_items[14]: Basket Affinity — Promo Tagging,
-        }
+mapping = {
+    "Customer Baskets Overview": customer_baskets_overview,
+    "Global Category Overview-Sales": global_category_overview_sales,
+    "Global Category Overview-Baskets": global_category_overview_baskets,
+    "Supplier Contribution": supplier_contribution,
+    "Category Overview": category_overview,
+    "Branch Comparison": branch_comparison,
+    "Product Perfomance": product_performance,
+    "Global Loyalty Overview": global_loyalty_overview,
+    "Branch Loyalty Overview": branch_loyalty_overview,
+    "Customer Loyalty Overview": customer_loyalty_overview,
+    "Global Pricing Overview": global_pricing_overview,
+    "Branch Pricing Overview": branch_pricing_overview,
+    "Global Refunds Overview": global_refunds_overview,
+    "Branch Refunds Overview": branch_refunds_overview,
+    "Basket Affinity — Promo Tagging": basket_affinity_promo_tagging  # ✅ correct entry
+}
+
         func = mapping.get(choice)
         if func:
             func(df)
