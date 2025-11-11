@@ -16,31 +16,64 @@ custom_style = """
         footer {visibility: hidden;}
         [data-testid="stToolbar"] {visibility: hidden !important;}
 
-        /* Move the sidebar toggle (collapsedControl) to the bottom center */
+        /* Make the sidebar a bottom docked bar */
+        [data-testid="stSidebar"] {
+            position: fixed !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            max-height: 26vh;
+            background-color: #ffffff !important;
+            box-shadow: 0 -2px 8px rgba(0,0,0,0.15);
+            padding: 8px 16px 10px 16px !important;
+            z-index: 9998 !important;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        /* Lay out sidebar content horizontally in the bottom bar */
+        [data-testid="stSidebar"] > div {
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            align-items: flex-start !important;
+            gap: 1.5rem !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+        }
+
+        /* Compact sidebar widgets */
+        [data-testid="stSidebar"] label {
+            font-size: 0.85rem !important;
+            margin-bottom: 2px !important;
+        }
+        [data-testid="stSidebar"] .stButton>button,
+        [data-testid="stSidebar"] .stSelectbox,
+        [data-testid="stSidebar"] .stNumberInput,
+        [data-testid="stSidebar"] .stFileUploader {
+            font-size: 0.85rem !important;
+        }
+
+        /* Ensure main content isn't hidden behind the bottom bar */
+        main [data-testid="block-container"] {
+            padding-bottom: 28vh !important;
+        }
+
+        /* Keep the collapse/expand toggle above the bottom bar centered */
         [data-testid="collapsedControl"] {
             position: fixed !important;
-            bottom: 10px !important;
+            bottom: 28vh !important;
             left: 50% !important;
             transform: translateX(-50%) !important;
             z-index: 10000 !important;
             background-color: #f0f2f6 !important;
             border-radius: 20px !important;
             box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-            padding: 4px 10px !important;
-            font-size: 18px !important;
-            transition: all 0.3s ease-in-out;
-        }
-
-        /* Subtle hover effect for the toggle button */
-        [data-testid="collapsedControl"]:hover {
-            background-color: #e0e4eb !important;
-            transform: translateX(-50%) scale(1.1) !important;
+            padding: 2px 10px !important;
+            cursor: pointer !important;
         }
     </style>
 """
 st.markdown(custom_style, unsafe_allow_html=True)
-
-
 
 # -----------------------
 # Data Loading & Caching
@@ -221,6 +254,10 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None,
                 appended[col] = appended[col].map(
                     lambda v: f"{float(v):,.2f}" if pd.notna(v) and str(v) != '' else ''
                 )
+
+    # Ensure '#' rank column is string-only to avoid Arrow mixed-type issues
+    if '#' in appended.columns:
+        appended['#'] = appended['#'].astype(str)
 
     st.dataframe(appended, use_container_width=True)
 
@@ -1359,8 +1396,7 @@ def customer_baskets_overview(df):
         index_col='ITEM_NAME',
         total_label='TOTAL'
     )
-    # --- Items in Global Top X but Missing/Underperforming in Y (Zero Sales Only) ---
-    # Only show items where the selected branch has ZERO NET_SALES (or no record).
+    # Underperforming items with zero sales in branch
     if 'NET_SALES' in branch_df.columns:
         branch_item_sales = (
             branch_df.groupby('ITEM_NAME', as_index=False)['NET_SALES']
@@ -2155,7 +2191,7 @@ def branch_refunds_overview(df):
     )
 
 # -----------------------------------------
-# NEW: Basket Affinity — Promo Tagging
+# NEW INSIGHT: Basket Affinity — Promo Tagging
 # -----------------------------------------
 def basket_affinity_promo_tagging(df):
     st.header("Basket Affinity — Promo Tagging")
@@ -2167,11 +2203,12 @@ def basket_affinity_promo_tagging(df):
         return
 
     d = df.copy()
+    # Clean key fields
     for c in ['STORE_NAME', 'DEPARTMENT', 'ITEM_CODE', 'ITEM_NAME', 'CUST_CODE']:
         if c in d.columns:
             d[c] = d[c].astype(str).str.strip()
 
-    # Keep only rows with non-empty basket id & item code
+    # Keep only valid baskets & items
     d = d[
         d['CUST_CODE'].astype(str).str.strip().astype(bool)
         & d['ITEM_CODE'].astype(str).str.strip().astype(bool)
@@ -2186,7 +2223,7 @@ def basket_affinity_promo_tagging(df):
         "Store(s)",
         options=stores,
         default=stores,
-        help="Select one or more stores. Default is all."
+        help="Select one or more stores (default = all)."
     )
     if not selected_stores:
         st.info("Select at least one store.")
@@ -2199,7 +2236,7 @@ def basket_affinity_promo_tagging(df):
         "Department(s)",
         options=depts,
         default=depts,
-        help="Select one or more departments. Default is all."
+        help="Select one or more departments (default = all)."
     )
     if not selected_depts:
         st.info("Select at least one department.")
@@ -2210,7 +2247,7 @@ def basket_affinity_promo_tagging(df):
         st.info("No data after applying Store & Department filters.")
         return
 
-    # Build item labels
+    # Base item picker
     item_cols = ['ITEM_CODE']
     if 'ITEM_NAME' in d.columns:
         item_cols.append('ITEM_NAME')
@@ -2244,7 +2281,7 @@ def basket_affinity_promo_tagging(df):
     else:
         st.markdown(f"**Base Item:** `{base_item}`")
 
-    # Baskets containing base item
+    # All baskets that contain the base item
     base_baskets = d.loc[d['ITEM_CODE'] == base_item, 'CUST_CODE'].unique()
     if base_baskets.size == 0:
         st.info("Selected item not found in any basket under current filters.")
@@ -2275,12 +2312,13 @@ def basket_affinity_promo_tagging(df):
     else:
         cooc['Total_Qty'] = 0
 
+    # % of base-item baskets that contain this item
     total_base_baskets = len(base_baskets)
     cooc['Basket_Share_%'] = (
         cooc['Baskets_Together'] / total_base_baskets * 100
     ).round(2)
 
-    # Total baskets for each item (within filtered data)
+    # Total baskets of each item in filtered universe
     item_totals = (
         d.groupby('ITEM_CODE')['CUST_CODE']
         .nunique()
@@ -2288,6 +2326,7 @@ def basket_affinity_promo_tagging(df):
     )
     cooc = cooc.merge(item_totals, on='ITEM_CODE', how='left')
 
+    # % of this item's customers that also bought the base item
     cooc['Item_Customer_Share_%'] = np.where(
         cooc['Item_Total_Baskets'] > 0,
         (cooc['Baskets_Together'] / cooc['Item_Total_Baskets'] * 100).round(2),
@@ -2328,10 +2367,9 @@ def basket_affinity_promo_tagging(df):
         total_label='TOTAL'
     )
 
+    # Sample baskets explorer
     with st.expander("🔎 View sample baskets (exact composition)"):
         max_sample = int(min(50, len(base_baskets)))
-        if max_sample < 3:
-            max_sample = len(base_baskets)
         if max_sample == 0:
             st.info("No baskets to sample.")
             return
