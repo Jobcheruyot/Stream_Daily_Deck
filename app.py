@@ -9,69 +9,7 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 # Hide Streamlit default header, footer, and hamburger menu
 # --- UI Clean-up & Sidebar Positioning ---
-custom_style = """
-    <style>
-        /* Hide Streamlit's default header, toolbar, and footer */
-        header {visibility: hidden;}
-        footer {visibility: hidden;}
-        [data-testid="stToolbar"] {visibility: hidden !important;}
 
-        /* Make the sidebar a bottom docked bar */
-        [data-testid="stSidebar"] {
-            position: fixed !important;
-            bottom: 0 !important;
-            left: 0 !important;
-            width: 100% !important;
-            height: auto !important;
-            max-height: 26vh;
-            background-color: #ffffff !important;
-            box-shadow: 0 -2px 8px rgba(0,0,0,0.15);
-            padding: 8px 16px 10px 16px !important;
-            z-index: 9998 !important;
-            border-top: 1px solid #e0e0e0;
-        }
-
-        /* Lay out sidebar content horizontally in the bottom bar */
-        [data-testid="stSidebar"] > div {
-            display: flex !important;
-            flex-wrap: nowrap !important;
-            align-items: flex-start !important;
-            gap: 1.5rem !important;
-            overflow-x: auto !important;
-            overflow-y: hidden !important;
-        }
-
-        /* Compact sidebar widgets */
-        [data-testid="stSidebar"] label {
-            font-size: 0.85rem !important;
-            margin-bottom: 2px !important;
-        }
-        [data-testid="stSidebar"] .stButton>button,
-        [data-testid="stSidebar"] .stSelectbox,
-        [data-testid="stSidebar"] .stNumberInput,
-        [data-testid="stSidebar"] .stFileUploader {
-            font-size: 0.85rem !important;
-        }
-
-        /* Ensure main content isn't hidden behind the bottom bar */
-        main [data-testid="block-container"] {
-            padding-bottom: 28vh !important;
-        }
-
-        /* Keep the collapse/expand toggle above the bottom bar centered */
-        [data-testid="collapsedControl"] {
-            position: fixed !important;
-            bottom: 28vh !important;
-            left: 50% !important;
-            transform: translateX(-50%) !important;
-            z-index: 10000 !important;
-            background-color: #f0f2f6 !important;
-            border-radius: 20px !important;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-            padding: 2px 10px !important;
-            cursor: pointer !important;
-        }
-    </style>
 """
 st.markdown(custom_style, unsafe_allow_html=True)
 
