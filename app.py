@@ -7,8 +7,9 @@ from datetime import timedelta
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
+
 # =========================
-# Clean Landing (pre-data only) + Soft Red/Green Theme
+# High-Contrast Landing (pre-data only) + Bigger Fonts + Sidebar Upload Hint
 # =========================
 import streamlit as st
 
@@ -17,7 +18,10 @@ def _sd_theme():
     <style>
       :root{ --g:#0FA34B; --r:#E53935; --ink:#0b1f10; }
 
-      /* Background */
+      /* Global font size boost for desktop */
+      html, body, .stApp { font-size: 17px; }
+
+      /* Background (soft, not overpowering) */
       .stApp{
         background:
           radial-gradient(1100px 520px at 10% 10%, #eefdf3 0%, #f8fffb 45%, transparent 65%) no-repeat,
@@ -26,67 +30,86 @@ def _sd_theme():
         background-attachment: fixed;
       }
 
-      /* Sidebar (keep uploader tidy & obvious) */
+      /* Sidebar: keep uploader obvious */
       [data-testid="stSidebar"]{
         background: linear-gradient(180deg, rgba(229,57,53,.10) 0%, rgba(255,255,255,.96) 60%, #fff 100%);
         border-right: 1px solid rgba(229,57,53,.18);
       }
       [data-testid="stSidebar"] .stFileUploader{
-        border: 1px dashed rgba(229,57,53,.35);
-        border-radius: 12px; padding: 10px 12px; background: rgba(255,255,255,.80);
+        border: 2px dashed rgba(229,57,53,.45);
+        border-radius: 12px; padding: 12px; background: rgba(255,255,255,.88);
       }
 
-      /* Content wrapper */
-      .sd-wrap{ max-width: 1180px; margin: 0 auto; }
+      /* Floating hint pointing to the sidebar (desktop only) */
+      @media (min-width: 1100px){
+        .sb-hint{
+          position: fixed; left: 8px; top: 120px; z-index: 999;
+          background: #0FA34B; color: #fff; font-weight: 800;
+          padding: 6px 10px; border-radius: 10px;
+          box-shadow: 0 10px 24px rgba(15,163,75,.35);
+          animation: pop 1.2s ease-in-out infinite alternate;
+        }
+        .sb-hint:after{
+          content:""; position:absolute; right:-10px; top: 12px;
+          border-width: 8px; border-style: solid;
+          border-color: transparent transparent transparent #0FA34B;
+        }
+        @keyframes pop { from{ transform: translateY(-2px);} to{ transform: translateY(2px);} }
+      }
+
+      /* Content width + breathing room (no fullscreen feel) */
+      .sd-wrap{ max-width: 1200px; margin: 8px auto 18px; }
 
       /* Hero */
       .sd-hero{
-        margin: 8px auto 10px; padding: 20px 18px 12px;
-        border-radius: 18px; background: rgba(255,255,255,.94);
+        margin: 4px auto 12px; padding: 22px 22px 16px;
+        border-radius: 18px; background: rgba(255,255,255,.95);
         border: 1px solid #eef3ee; box-shadow: 0 14px 36px rgba(0,0,0,.06);
       }
       .sd-title{
-        font-size: 56px; line-height: 1.04; font-weight: 900; margin: 0;
+        font-size: 64px; line-height: 1.02; font-weight: 900; margin: 0 0 6px 0;
         background: linear-gradient(90deg, var(--g), var(--r));
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       }
-      .sd-sub{ font-size: 18px; font-weight: 800; color:#0f5132; margin: 6px 0 8px; }
+      .sd-sub{ font-size: 22px; font-weight: 900; color:#0f5132; margin: 0 0 10px; }
 
       /* Chips */
       .sd-chips{ margin-top: 6px; }
-      .sd-chip{ display:inline-block; padding:6px 10px; margin:3px; border-radius:999px; font-weight:800; font-size:12px; }
+      .sd-chip{ display:inline-block; padding:8px 12px; margin:4px; border-radius:999px; font-weight:900; font-size:13px; }
       .sd-g{ background:#E8F7EE; color:#0E6B3A; border:1px solid #CDEED9; }
       .sd-r{ background:#FDEBEC; color:#AA1E23; border:1px solid #F8C8CB; }
 
       /* 3-panel grid */
-      .sd-grid{ display:grid; gap:16px; margin: 12px 0 0; grid-template-columns:repeat(3,minmax(260px,1fr)); }
+      .sd-grid{ display:grid; gap:18px; margin: 14px 0 0; grid-template-columns:repeat(3,minmax(280px,1fr)); }
       @media (max-width:1100px){ .sd-grid{ grid-template-columns:1fr 1fr; } }
       @media (max-width:760px){  .sd-grid{ grid-template-columns:1fr; } }
 
       .sd-card{
-        background: rgba(255,255,255,.96);
-        border: 1px solid #eef3ee; border-radius: 16px; padding: 14px 14px 10px;
+        background: rgba(255,255,255,.97);
+        border: 1px solid #eef3ee; border-radius: 16px; padding: 16px 16px 12px;
         box-shadow: 0 12px 30px rgba(0,0,0,.05);
       }
-      .sd-card h3{ margin: 0 0 6px; color: var(--ink); font-weight:900; font-size:18px; }
-      .sd-card p{  margin: 4px 0 6px; color:#255b3e; font-size:13.5px; }
+      .sd-card h3{ margin: 0 0 8px; color: var(--ink); font-weight: 900; font-size: 20px; }
+      .sd-card p{  margin: 4px 0 8px; color:#255b3e; font-size:14.5px; }
 
-      /* Metrics polish */
-      [data-testid="stMetricValue"]{ color: var(--ink); }
-      [data-testid="stMetricLabel"]{ color:#356b4a; font-weight:700; }
+      /* Bigger metrics */
+      [data-testid="stMetricValue"]{ color: var(--ink); font-size: 28px; }
+      [data-testid="stMetricLabel"]{ color:#356b4a; font-weight:800; font-size: 13.5px; }
 
-      /* Slightly tighter top padding */
-      .block-container{ padding-top: .8rem; }
+      /* Keep reasonable page padding */
+      .block-container{ padding-top: .9rem; padding-bottom: 1rem; }
     </style>
     """, unsafe_allow_html=True)
 
 def _sd_landing():
+    # Desktop hint near the sidebar uploader
+    st.markdown('<div class="sb-hint">⬆ Upload CSV here</div>', unsafe_allow_html=True)
+
     st.markdown('<div class="sd-wrap">', unsafe_allow_html=True)
     st.markdown('<div class="sd-hero">', unsafe_allow_html=True)
     st.markdown('<div class="sd-title">DailyDeck</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sd-sub">Sales · Operations · Insights — Make Smart Decisions.</div>',
-                unsafe_allow_html=True)
-    st.caption("⬅️ Upload your CSV from the sidebar to begin. This landing disappears once data loads.")
+    st.markdown('<div class="sd-sub">Sales · Operations · Insights — Make Smart Decisions.</div>', unsafe_allow_html=True)
+    st.caption("Use the sidebar uploader on the left. This landing disappears automatically once data loads.")
     st.markdown(
         '<div class="sd-chips">'
         '<span class="sd-chip sd-g">✔ Best Sellers</span>'
@@ -98,7 +121,6 @@ def _sd_landing():
     st.markdown('</div>', unsafe_allow_html=True)  # /hero
 
     st.markdown('<div class="sd-grid">', unsafe_allow_html=True)
-
     # Sales
     with st.container():
         st.markdown('<div class="sd-card">', unsafe_allow_html=True)
@@ -133,7 +155,7 @@ def _sd_landing():
     st.markdown('</div>', unsafe_allow_html=True)  # /wrap
 
 def show_landing_until_df(df_key: str = "df"):
-    """Show themed landing only if df missing/empty, then stop page so reports take over later."""
+    """Show themed landing only if df missing/empty, then stop so main reports render after upload."""
     _sd_theme()
     _df = st.session_state.get(df_key)
     if _df is None or (hasattr(_df, "empty") and _df.empty):
@@ -142,8 +164,6 @@ def show_landing_until_df(df_key: str = "df"):
 
 # ---- Call once at the very top of your main page ----
 show_landing_until_df("df")
-
-
 
 
 # -----------------------
