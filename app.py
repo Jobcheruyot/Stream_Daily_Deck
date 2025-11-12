@@ -8,17 +8,14 @@ from datetime import timedelta
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 
-# ===============================
-# ✨ Landing Page (no-data state)
-# ===============================
+# ======================================
+# ✨ Landing Page (Shown Before Upload)
+# ======================================
 import streamlit as st
 import streamlit.components.v1 as components
 
-def show_landing_if_no_data(df):
-    """Show the cinematic landing only before data exists, then stop the app."""
-    if df is not None and hasattr(df, "empty") and (not df.empty):
-        return  # data exists → render the rest of the app
-
+def show_landing_page():
+    """Always visible when no data is uploaded yet."""
     st.markdown("""
     <style>
       .stApp { background: radial-gradient(1200px 600px at 20% 10%, #f2f7ff 0%, #ffffff 40%, #f7fbff 100%); }
@@ -44,7 +41,6 @@ def show_landing_if_no_data(df):
       .chips{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin:18px 0 2px; }
       .chip{ padding:8px 12px; border-radius:999px; font-size:13px; color:#0b2447; background:#eef6ff; border:1px solid #dbeaff;}
       .cta{ display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:18px;}
-      .cta a{ text-decoration:none; }
       .cta .primary{ background:#205295; color:#fff; border:none; padding:12px 18px; border-radius:12px; font-weight:700;
         box-shadow:0 6px 20px rgba(32,82,149,.25); transition:.2s; display:inline-block;}
       .cta .primary:hover{ transform:translateY(-1px); background:#144272; }
@@ -53,7 +49,6 @@ def show_landing_if_no_data(df):
       .sk{ height:88px; border-radius:16px; background:linear-gradient(90deg,#f2f7ff 0%,#e9f2ff 50%,#f2f7ff 100%);
         animation:shimmer 1.6s infinite; border:1px solid #e7f0ff;}
       @keyframes shimmer{ 0%{background-position:-200px 0} 100%{background-position:200px 0} }
-      [data-testid="stNotification"]{ display:none !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -79,8 +74,8 @@ def show_landing_if_no_data(df):
         </div>
 
         <div class="cta">
-          <span class="primary">⬆️ Use the uploader on the left</span>
-          <span class="ghost">What will I see?</span>
+          <span class="primary">⬆️ Upload your CSV on the sidebar</span>
+          <span class="ghost">See insights instantly</span>
         </div>
       </div>
 
@@ -90,7 +85,6 @@ def show_landing_if_no_data(df):
     </div>
     """, height=620)
 
-    st.stop()  # prevent any downstream code (dataframes/plots) from running
 
 # -----------------------
 # Data Loading & Caching
