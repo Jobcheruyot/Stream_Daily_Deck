@@ -1090,62 +1090,194 @@ def customer_traffic_departmentwise(df):
     # Same engine as Store Customer Traffic Storewise
     store_customer_traffic_storewise(df)
 
-def cashiers_performance(df):
-    st.header("Cashiers Performance")
-    if not all(c in df.columns for c in ['TRN_DATE', 'CUST_CODE', 'CASHIER-COUNT', 'STORE_NAME']):
-        st.warning("Missing required columns for cashier performance")
+def cashiers_performance(df: pd.DataFrame):
+    import plotly.express as px
+    import numpy as np
+    import pandas as pd
+    import streamlit as st
+
+    st.header("Cashiers Perfomance")
+
+    # ===== 1) Prepare Data =====
+    if 'TRN_DATE' not in df.columns:
+        st.warning("Missing TRN_DATE")
         return
+
     d = df.copy()
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-    d = d.dropna(subset=['TRN_DATE'])
-    receipt_duration = d.groupby(['STORE_NAME', 'CUST_CODE'], as_index=False).agg(
-        Start_Time=('TRN_DATE', 'min'),
-        End_Time=('TRN_DATE', 'max')
+    d = d.dropna(subset=['TRN_DATE']).copy()
+
+    # Ensure identifiers exist (and are strings)
+    required_id_cols = ['STORE_CODE', 'TILL', 'SESSION', 'RCT', 'CASHIER', 'ITEM_CODE']
+    missing = [c for c in required_id_cols if c not in d.columns]
+    if missing:
+        st.warning(f"Missing column(s) in dataset: {missing}")
+        return
+    for c in required_id_cols + ['STORE_NAME']:
+        if c in d.columns:
+            d[c] = d[c].astype(str).fillna('').str.strip()
+
+    # Build CUST_CODE if not present
+    if 'CUST_CODE' not in d.columns:
+        d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
+    else:
+        d['CUST_CODE'] = d['CUST_CODE'].astype(str).fillna('').str.strip()
+
+    # Create unique cashier per store (match your naming)
+    if 'CASHIER-COUNT' not in d.columns:
+        d['CASHIER-COUNT'] = d['STORE_NAME'] + '-' + d['CASHIER']
+
+    # ===== 2) Receipt-level duration (min) and item count =====
+    receipt_duration = (
+        d.groupby(['STORE_NAME', 'CUST_CODE'], as_index=False)
+         .agg(Start_Time=('TRN_DATE', 'min'),
+              End_Time=('TRN_DATE', 'max'))
     )
     receipt_duration['Duration_Sec'] = (
         receipt_duration['End_Time'] - receipt_duration['Start_Time']
     ).dt.total_seconds().fillna(0)
-    merged = d.merge(
-        receipt_duration[['STORE_NAME', 'CUST_CODE', 'Duration_Sec']],
-        on=['STORE_NAME', 'CUST_CODE'],
-        how='left'
+
+    receipt_items = (
+        d.groupby(['STORE_NAME', 'CUST_CODE'], as_index=False)['ITEM_CODE']
+         .nunique()
+         .rename(columns={'ITEM_CODE': 'Unique_Items'})
     )
-    cashier_summary = merged.groupby(['STORE_NAME', 'CASHIER-COUNT'], as_index=False).agg(
-        Avg_Duration_Sec=('Duration_Sec', 'mean'),
-        Customers_Served=('CUST_CODE', 'nunique')
+
+    receipt_stats = pd.merge(
+        receipt_duration, receipt_items,
+        on=['STORE_NAME', 'CUST_CODE'], how='left'
     )
-    cashier_summary['Avg_Serve_Min'] = (cashier_summary['Avg_Duration_Sec'] / 60).round(1)
-    branches = sorted(cashier_summary['STORE_NAME'].unique())
-    branch = st.selectbox("Select Branch for Cashier Performance", branches)
-    dfb = cashier_summary[cashier_summary['STORE_NAME'] == branch].sort_values('Avg_Serve_Min')
-    if dfb.empty:
-        st.info("No cashier data for this branch")
+
+    # ===== 3) Store-level summary (table at the end) =====
+    store_summary = (
+        receipt_stats.groupby('STORE_NAME', as_index=False)
+        .agg(
+            Total_Customers=('CUST_CODE', 'nunique'),
+            Avg_Time_per_Customer_Min=('Duration_Sec', lambda s: s.mean() / 60),
+            Avg_Items_per_Receipt=('Unique_Items', 'mean')
+        )
+    )
+    store_summary['Avg_Time_per_Customer_Min'] = store_summary['Avg_Time_per_Customer_Min'].round(1)
+    store_summary['Avg_Items_per_Receipt'] = store_summary['Avg_Items_per_Receipt'].round(1)
+    store_summary = store_summary.sort_values('Avg_Time_per_Customer_Min', ascending=True).reset_index(drop=True)
+    store_summary.index = np.arange(1, len(store_summary) + 1)
+    store_summary.index.name = '#'
+    store_summary['Total_Customers'] = store_summary['Total_Customers'].map('{:,.0f}'.format)
+
+    # ===== 4) Cashier summary (duration + customer count + avg items/receipt) =====
+    merged_for_duration = d.merge(
+        receipt_stats[['STORE_NAME', 'CUST_CODE', 'Duration_Sec']],
+        on=['STORE_NAME', 'CUST_CODE'], how='left'
+    )
+    cashier_durations = (
+        merged_for_duration
+        .groupby(['STORE_NAME', 'CASHIER-COUNT'], as_index=False)
+        .agg(
+            Avg_Duration_Sec=('Duration_Sec', 'mean'),
+            Customers_Served=('CUST_CODE', 'nunique')
+        )
+    )
+    cashier_durations['Avg_Serve_Min'] = (cashier_durations['Avg_Duration_Sec'] / 60.0).round(1)
+
+    # --- Avg items per receipt per cashier ---
+    _receipt_cashier = d[['STORE_NAME', 'CUST_CODE', 'CASHIER-COUNT']].drop_duplicates()
+    _rc_items = _receipt_cashier.merge(receipt_items, on=['STORE_NAME', 'CUST_CODE'], how='left')
+    _avg_items_cashier = (
+        _rc_items.groupby(['STORE_NAME', 'CASHIER-COUNT'], as_index=False)['Unique_Items']
+                .mean()
+                .rename(columns={'Unique_Items': 'Avg_Items_per_Receipt_Cashier'})
+    )
+    cashier_durations = cashier_durations.merge(
+        _avg_items_cashier, on=['STORE_NAME', 'CASHIER-COUNT'], how='left'
+    )
+    cashier_durations['Avg_Items_per_Receipt_Cashier'] = (
+        cashier_durations['Avg_Items_per_Receipt_Cashier'].round(1)
+    )
+
+    # ===== 5) Dropdown chart per branch (matches your intended look) =====
+    branches = sorted(store_summary['STORE_NAME'].unique().tolist())
+    if not branches:
+        st.info("No branches found.")
         return
-    dfb['Label'] = (
-        dfb['Avg_Serve_Min'].astype(str) +
-        ' min (' +
-        dfb['Customers_Served'].astype(str) +
-        ' customers)'
+
+    # Initial branch
+    init_branch = branches[0]
+    branch_data = {
+        b: cashier_durations[cashier_durations['STORE_NAME'] == b].sort_values('Avg_Serve_Min')
+        for b in branches
+    }
+    df_branch = branch_data[init_branch].copy()
+    df_branch['Label_Text'] = (
+        df_branch['Avg_Serve_Min'].astype(str) + ' min (' +
+        df_branch['Customers_Served'].astype(str) + ' customers) — ' +
+        df_branch['Avg_Items_per_Receipt_Cashier'].fillna(0).map('{:.1f}'.format) + ' items'
     )
+
     fig = px.bar(
-        dfb,
+        df_branch,
         x='Avg_Serve_Min',
         y='CASHIER-COUNT',
         orientation='h',
-        text='Label',
+        text='Label_Text',
         color='Avg_Serve_Min',
         color_continuous_scale='Blues',
-        title=f"Avg Serving Time per Cashier — {branch}"
+        title=f"🕒 Avg Serving Time per Cashier — {init_branch}",
+        labels={'Avg_Serve_Min': 'Avg Time per Customer (min)', 'CASHIER-COUNT': 'Cashier'}
     )
-    fig.update_layout(coloraxis_showscale=False,
-                      height=max(400, 25 * len(dfb)))
+    fig.update_traces(textposition='outside', textfont=dict(size=10))
+    fig.update_layout(
+        xaxis_title="Average Serving Time (minutes)",
+        yaxis_title="Cashier",
+        coloraxis_showscale=False,
+        height=max(500, 25 * len(df_branch))
+    )
+
+    # Dropdown to switch branches
+    buttons = []
+    for b in branches:
+        dfb = branch_data[b].copy()
+        dfb['Label_Text'] = (
+            dfb['Avg_Serve_Min'].astype(str) + ' min (' +
+            dfb['Customers_Served'].astype(str) + ' customers) — ' +
+            dfb['Avg_Items_per_Receipt_Cashier'].fillna(0).map('{:.1f}'.format) + ' items'
+        )
+        buttons.append(dict(
+            label=b,
+            method='update',
+            args=[{
+                'x': [dfb['Avg_Serve_Min']],
+                'y': [dfb['CASHIER-COUNT']],
+                'text': [dfb['Label_Text']],
+                'marker': {'color': dfb['Avg_Serve_Min'], 'colorscale': 'Blues'}
+            }, {
+                'title': f"🕒 Avg Serving Time per Cashier — {b}",
+                'height': max(500, 25 * len(dfb))
+            }]
+        ))
+
+    fig.update_layout(
+        updatemenus=[dict(
+            type='dropdown',
+            x=0, xanchor='left',
+            y=1.15, yanchor='top',
+            buttons=buttons,
+            showactive=True
+        )]
+    )
     st.plotly_chart(fig, use_container_width=True)
-    format_and_display(
-        dfb[['CASHIER-COUNT', 'Avg_Serve_Min', 'Customers_Served']],
-        numeric_cols=['Avg_Serve_Min', 'Customers_Served'],
-        index_col='CASHIER-COUNT',
-        total_label='TOTAL'
-    )
+
+    # ===== 7) Display Final Table =====
+    try:
+        # If you have the helper in your app
+        format_and_display(
+            store_summary.reset_index(),
+            numeric_cols=['Total_Customers', 'Avg_Time_per_Customer_Min', 'Avg_Items_per_Receipt'],
+            index_col=None,
+            total_label='TOTAL'
+        )
+    except Exception:
+        st.dataframe(store_summary, use_container_width=True)
+
 
 def till_usage(df):
     st.header("Till Usage")
