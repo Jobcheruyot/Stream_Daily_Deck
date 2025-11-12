@@ -1,34 +1,39 @@
 """
-Landing page with in-page CSV upload and real navigation buttons.
+Landing page with in-page CSV upload and robust navigation (handles subsections).
 
-Paste this file into your Streamlit app and call `show_landing()` from your main script
-(instead of the previous landing helper) or replace your existing landing page with it.
+How it works:
+- File uploader is on the landing page (not the sidebar). When a CSV is uploaded it is parsed
+  and saved in st.session_state['raw_df'] and st.session_state['df'] (cleaned).
+- Navigation buttons ("Go to Sales", "Go to Operations", "Go to Insights") are real buttons that
+  update st.session_state and use query-params as a reliable rerun trigger. This avoids calling
+  streamlit.experimental_rerun (which may not be present in some Streamlit builds).
+- Subsections are supported (you can call navigate_to(section, subsection="...")).
+- The main app should read st.session_state['section'] or the query param `section` to change view.
+- Small CSS tweaks encourage the layout to stretch and fit the screen.
 
-Behavior:
-- File uploader is on the landing page (not the sidebar).
-- When a CSV is uploaded it is parsed and stored in st.session_state['raw_df_bytes'],
-  st.session_state['raw_df'] and st.session_state['df'] (cleaned).
-- If a `clean_and_derive` function exists in the global scope (for example from your main app),
-  it will be used to clean the uploaded raw dataframe. Otherwise a lightweight internal cleaner
-  will be used so the landing page works standalone.
-- "Go to Sales / Operations / Insights" are real buttons that set st.session_state['section']
-  and trigger a rerun so the rest of your app can pick the section up as before.
+Usage:
+- Paste this file into your app and import or call show_landing() from your main script.
+- In your main app routing, pick up:
+    params = st.experimental_get_query_params()
+    section = st.session_state.get('section') or params.get('section', [''])[0] or "LANDING"
+    subsection = st.session_state.get('subsection') or params.get('subsection', [''])[0] or None
+  and route accordingly.
 """
-
+from io import BytesIO
+from datetime import datetime
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
-from io import BytesIO
-from datetime import datetime
+import plotly.express as px
+
+# Page layout
+st.set_page_config(layout="wide")
 
 # Theme colors
 RED = "#d62728"
 GREEN = "#2ca02c"
 ACCENT_BG = "linear-gradient(90deg, #f8fbf8 0%, #fef6f6 100%)"
-
-st.set_page_config(layout="wide")
 
 # -----------------------
 # Helpers
@@ -39,12 +44,6 @@ def _safe_sum(df, col):
     except Exception:
         return 0.0
 
-def _safe_unique_count(df, col):
-    try:
-        return int(df[col].nunique())
-    except Exception:
-        return 0
-
 def _sparkline_fig(series, color):
     x = list(range(len(series))) if getattr(series, "index", None) is None else series.index
     y = series.values if hasattr(series, "values") else series
@@ -54,15 +53,11 @@ def _sparkline_fig(series, color):
         y=y,
         mode='lines',
         line=dict(color=color, width=2),
-        fill='tozeroy',
-        hoverinfo='y+x'
+        fill='tozeroy'
     ))
-    fig.update_layout(
-        margin=dict(l=0, r=0, t=0, b=0),
-        height=90,
-        xaxis=dict(showgrid=False, visible=False),
-        yaxis=dict(showgrid=False, visible=False)
-    )
+    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=90,
+                      xaxis=dict(showgrid=False, visible=False),
+                      yaxis=dict(showgrid=False, visible=False))
     return fig
 
 def _kpi_card(title, value, delta=None, icon=None, color="#111"):
@@ -102,11 +97,9 @@ def _kpi_card(title, value, delta=None, icon=None, color="#111"):
 # Minimal internal cleaner (used if clean_and_derive is not provided by the host app)
 def _minimal_clean_and_derive(raw_df: pd.DataFrame) -> pd.DataFrame:
     d = raw_df.copy()
-    # normalize small set of columns used by landing page visuals
-    for c in ['STORE_NAME','TRN_DATE','NET_SALES','CUST_CODE','TILL','STORE_CODE','SALES_CHANNEL_L1','CATEGORY','SP_PRE_VAT','ITEM_CODE','LOYALTY_CUSTOMER_CODE']:
-        if c in d.columns:
-            if d[c].dtype == object:
-                d[c] = d[c].astype(str).str.strip()
+    for c in ['STORE_NAME','TRN_DATE','NET_SALES','CUST_CODE','TILL','STORE_CODE','SALES_CHANNEL_L1','CATEGORY','SP_PRE_VAT','ITEM_CODE','LOYALTY_CUSTOMER_CODE','VAT_AMT']:
+        if c in d.columns and d[c].dtype == object:
+            d[c] = d[c].astype(str).str.strip()
     if 'TRN_DATE' in d.columns:
         d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
         d = d.dropna(subset=['TRN_DATE'])
@@ -115,49 +108,83 @@ def _minimal_clean_and_derive(raw_df: pd.DataFrame) -> pd.DataFrame:
             d[c] = pd.to_numeric(d[c].astype(str).str.replace(',', '', regex=False), errors='coerce').fillna(0)
     if 'GROSS_SALES' not in d.columns:
         d['GROSS_SALES'] = d.get('NET_SALES', 0) + d.get('VAT_AMT', 0)
-    # Till code
     if 'Till_Code' not in d.columns and all(x in d.columns for x in ['TILL','STORE_CODE']):
         d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
-    # Shift bucket
-    if 'SHIFT' in d.columns:
-        d['Shift_Bucket'] = np.where(d['SHIFT'].astype(str).str.upper().str.contains('NIGHT', na=False), 'Night', 'Day')
     return d
 
 # -----------------------
 # Upload / state helpers
 # -----------------------
-def _process_uploaded_file(uploaded_file):
+def _process_uploaded_file_bytes(raw_bytes: bytes):
     try:
-        raw_bytes = uploaded_file.getvalue()
         raw_df = pd.read_csv(BytesIO(raw_bytes), on_bad_lines='skip', low_memory=False)
-        # if the host app has a clean_and_derive function, use it; otherwise use minimal
-        if 'clean_and_derive' in globals() and callable(globals()['clean_and_derive']):
-            try:
-                df = globals()['clean_and_derive'](raw_df)
-            except Exception:
-                df = _minimal_clean_and_derive(raw_df)
-        else:
-            df = _minimal_clean_and_derive(raw_df)
-
-        # stash in session_state
-        st.session_state['raw_df_bytes'] = raw_bytes
-        st.session_state['raw_df'] = raw_df
-        st.session_state['df'] = df
-        st.session_state['data_uploaded'] = True
-        return True, None
     except Exception as e:
-        return False, str(e)
+        return False, f"CSV parsing error: {e}", None, None
 
-def _clear_uploaded_data():
+    # Prefer host app's cleaner if present
+    cleaner = globals().get('clean_and_derive', None)
+    if callable(cleaner):
+        try:
+            df = cleaner(raw_df)
+        except Exception:
+            df = _minimal_clean_and_derive(raw_df)
+    else:
+        df = _minimal_clean_and_derive(raw_df)
+
+    # Store
+    st.session_state['raw_df_bytes'] = raw_bytes
+    st.session_state['raw_df'] = raw_df
+    st.session_state['df'] = df
+    st.session_state['data_uploaded'] = True
+    return True, None, raw_df, df
+
+def clear_uploaded_data():
     keys = ['raw_df_bytes','raw_df','df','data_uploaded']
     for k in keys:
         if k in st.session_state:
             del st.session_state[k]
 
+def navigate_to(section: str, subsection: str | None = None):
+    """
+    Set navigation targets and trigger a rerun in a robust way:
+    - update st.session_state
+    - set query params (this triggers a rerun)
+    """
+    st.session_state['section'] = section
+    if subsection:
+        st.session_state['subsection'] = subsection
+    else:
+        if 'subsection' in st.session_state:
+            del st.session_state['subsection']
+    # Use query params to force a rerun across Streamlit versions
+    try:
+        # st.experimental_set_query_params will trigger a rerun
+        params = {"section": section}
+        if subsection:
+            params["subsection"] = subsection
+        st.experimental_set_query_params(**params)
+    except Exception:
+        # As a last fallback, flip an internal token to cause a rerun
+        st.session_state['_nav_token'] = not st.session_state.get('_nav_token', False)
+
 # -----------------------
 # UI: Landing page
 # -----------------------
 def show_landing():
+    # Small CSS to encourage full width usage and compact spacing
+    st.markdown(
+        """
+        <style>
+          .app-main .block-container { padding-left: 18px; padding-right: 18px; }
+          .landing-legend { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+          @media (max-width: 900px) {
+            .app-main .block-container { padding-left: 8px; padding-right: 8px; }
+          }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     # Header card
     st.markdown(
         f"""
@@ -165,16 +192,17 @@ def show_landing():
             padding:22px;
             border-radius:10px;
             background:{ACCENT_BG};
-            margin-bottom:18px;
+            margin-bottom:12px;
+            width:100%;
         ">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+                <div style="min-width:220px;">
                     <h1 style="margin:0; padding:0;">DailyDeck — Snapshot</h1>
                     <div style="color:#444; margin-top:6px;">
                         A high-level preview of what's ahead: Sales, Operations and Insights.
                     </div>
                 </div>
-                <div style="text-align:right;">
+                <div style="text-align:right; min-width:160px;">
                     <div style="font-size:13px;color:#666">As of</div>
                     <div style="font-weight:700;">{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</div>
                 </div>
@@ -185,10 +213,10 @@ def show_landing():
     )
 
     # Upload area (full-width row above the three columns)
-    st.markdown("<div style='margin-bottom:10px;'><strong>Upload data (CSV) to run the app</strong></div>", unsafe_allow_html=True)
-    col_file_left, col_file_mid, col_file_right = st.columns([1, 2, 1])
+    st.markdown("<div style='margin-bottom:6px;'><strong>Upload data (CSV) to run the app</strong></div>", unsafe_allow_html=True)
+    left, mid, right = st.columns([1, 2, 1])
 
-    with col_file_mid:
+    with mid:
         uploaded = st.file_uploader(
             "Drag & drop a DAILY_POS_TRN_ITEMS CSV here or click to browse (max ~1GB).",
             type=["csv"],
@@ -196,20 +224,18 @@ def show_landing():
         )
 
         if uploaded is not None:
+            raw_bytes = uploaded.getvalue()
             with st.spinner("Parsing uploaded CSV..."):
-                ok, err = _process_uploaded_file(uploaded)
+                ok, err, raw_df, df = _process_uploaded_file_bytes(raw_bytes)
             if ok:
                 st.success("CSV uploaded and parsed — data available for the session.")
             else:
-                st.error(f"Failed to parse CSV: {err}")
+                st.error(err)
 
-        # Show a small area with current upload status and controls
-        uploaded_status = st.session_state.get('data_uploaded', False)
-        if uploaded_status:
-            df = st.session_state.get('df', None)
-            raw_df = st.session_state.get('raw_df', None)
+        if st.session_state.get('data_uploaded', False):
             st.markdown("<div style='margin-top:8px; padding:8px; border-radius:8px; background:#f6fff6;'>✅ Data loaded in session.</div>", unsafe_allow_html=True)
-            st.button("Clear uploaded data", on_click=_clear_uploaded_data)
+            st.button("Clear uploaded data", on_click=clear_uploaded_data)
+
         else:
             st.info("No CSV uploaded. Upload here to enable the full app without the sidebar uploader.")
 
@@ -252,13 +278,12 @@ def show_landing():
 
         _kpi_card("Total Net Sales (KSh)", f"{total_sales:,.0f}", delta=sales_growth, icon="💰", color=RED)
         st.markdown("<div style='margin-top:8px;'>Sales trend (recent)</div>", unsafe_allow_html=True)
-        fig_spark = _sparkline_fig(daily_series if not daily_series.empty else pd.Series([0]), RED)
-        st.plotly_chart(fig_spark, use_container_width=True)
+        fig_spark = _sparkline_fig(daily_series if not getattr(daily_series, "empty", True) else pd.Series([0]), RED)
+        st.plotly_chart(fig_spark, width="stretch")
         st.markdown(f"<div style='margin-top:6px;color:#444'><b>Top Channel:</b> {top_channel}</div>", unsafe_allow_html=True)
 
-        if st.button("Go to Sales"):
-            st.session_state['section'] = "SALES"
-            st.experimental_rerun()
+        # Button uses on_click to avoid calling experimental_rerun directly
+        st.button("Go to Sales", on_click=lambda: navigate_to("SALES"))
 
     # OPERATIONS snapshot
     with col_ops:
@@ -295,13 +320,11 @@ def show_landing():
                 top_stores = df.groupby("STORE_NAME", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(5)
                 fig2 = px.bar(top_stores[::-1], x="NET_SALES", y="STORE_NAME", orientation="h", color_discrete_sequence=[GREEN])
                 fig2.update_layout(margin=dict(l=4, r=4, t=20, b=4), height=200, showlegend=False)
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, width="stretch")
             except Exception:
                 pass
 
-        if st.button("Go to Operations"):
-            st.session_state['section'] = "OPERATIONS"
-            st.experimental_rerun()
+        st.button("Go to Operations", on_click=lambda: navigate_to("OPERATIONS"))
 
     # INSIGHTS snapshot
     with col_insights:
@@ -336,37 +359,34 @@ def show_landing():
         st.markdown(f"<div style='margin-top:8px;color:#444'>Loyalty contacts today: <b>{loyalty_customers}</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div style='margin-top:6px;color:#444'>Top category (net sales): <b>{top_category}</b></div>", unsafe_allow_html=True)
 
-        # donut of category share (top 5)
         if df is not None and not df.empty and "CATEGORY" in df.columns and "NET_SALES" in df.columns:
             try:
                 cat = df.groupby("CATEGORY", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(6)
                 others = max(0, _safe_sum(df, "NET_SALES") - cat["NET_SALES"].sum())
                 if others > 0:
-                    cat = pd.concat([cat, pd.DataFrame([{"CATEGORY":"Others","NET_SALES":others}])], ignore_index=True)
+                    cat = pd.concat([cat, pd.DataFrame([{"CATEGORY": "Others", "NET_SALES": others}])], ignore_index=True)
                 fig3 = px.pie(cat, names="CATEGORY", values="NET_SALES", hole=0.6,
                               color_discrete_sequence=[RED, GREEN, "#7f7f7f", "#ff7f0e", "#9467bd", "#8c564b"])
                 fig3.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=230, showlegend=True)
-                st.plotly_chart(fig3, use_container_width=True)
+                st.plotly_chart(fig3, width="stretch")
             except Exception:
                 pass
 
-        if st.button("Go to Insights"):
-            st.session_state['section'] = "INSIGHTS"
-            st.experimental_rerun()
+        st.button("Go to Insights", on_click=lambda: navigate_to("INSIGHTS"))
 
     # Footer quick legend
     st.markdown(
         """
-        <div style="display:flex; gap:10px; margin-top:16px;">
+        <div class="landing-legend" style="margin-top:16px;">
             <div style="padding:10px 14px; border-radius:8px; background:rgba(44,160,44,0.06); color:#2ca02c;">● Green = Positive / Healthy</div>
             <div style="padding:10px 14px; border-radius:8px; background:rgba(214,39,40,0.06); color:#d62728;">● Red = Attention / Degraded</div>
-            <div style="padding:10px 14px; border-radius:8px; background:#fff; color:#444;">Use the buttons above to jump to sections</div>
+            <div style="padding:10px 14px; border-radius:8px; background:#fff; color:#444;">Use the buttons above to jump to sections (subsections supported)</div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-# Allow running the landing standalone for preview
+# If run directly, show preview
 if __name__ == "__main__":
     st.title("Landing — Preview with in-page upload")
     show_landing()
