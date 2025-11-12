@@ -1,24 +1,18 @@
 """
-Landing page with in-page CSV upload and robust navigation (handles subsections).
+Landing page with in-page CSV upload, robust navigation and a Home tab for section pages.
 
-How it works:
-- File uploader is on the landing page (not the sidebar). When a CSV is uploaded it is parsed
-  and saved in st.session_state['raw_df'] and st.session_state['df'] (cleaned).
-- Navigation buttons ("Go to Sales", "Go to Operations", "Go to Insights") are real buttons that
-  update st.session_state and use query-params as a reliable rerun trigger. This avoids calling
-  streamlit.experimental_rerun (which may not be present in some Streamlit builds).
-- Subsections are supported (you can call navigate_to(section, subsection="...")).
-- The main app should read st.session_state['section'] or the query param `section` to change view.
-- Small CSS tweaks encourage the layout to stretch and fit the screen.
+This file provides:
+- show_landing()           -> the landing snapshot with in-page uploader
+- show_top_nav()           -> a compact horizontal nav bar (Home | Sales | Operations | Insights)
+- navigate_to(section, subsection=None) -> navigation helper (uses query-params to trigger rerun)
+- clear_uploaded_data()    -> clears session upload state
 
-Usage:
-- Paste this file into your app and import or call show_landing() from your main script.
-- In your main app routing, pick up:
-    params = st.experimental_get_query_params()
-    section = st.session_state.get('section') or params.get('section', [''])[0] or "LANDING"
-    subsection = st.session_state.get('subsection') or params.get('subsection', [''])[0] or None
-  and route accordingly.
+Integration notes:
+- In your main app, call show_top_nav() at the top of each page (Sales/Operations/Insights)
+  so users always see the Home tab and can return to Landing.
+- Use st.experimental_get_query_params() or st.session_state['section'] to route views.
 """
+
 from io import BytesIO
 from datetime import datetime
 import streamlit as st
@@ -27,7 +21,6 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 
-# Page layout
 st.set_page_config(layout="wide")
 
 # Theme colors
@@ -94,7 +87,6 @@ def _kpi_card(title, value, delta=None, icon=None, color="#111"):
         unsafe_allow_html=True
     )
 
-# Minimal internal cleaner (used if clean_and_derive is not provided by the host app)
 def _minimal_clean_and_derive(raw_df: pd.DataFrame) -> pd.DataFrame:
     d = raw_df.copy()
     for c in ['STORE_NAME','TRN_DATE','NET_SALES','CUST_CODE','TILL','STORE_CODE','SALES_CHANNEL_L1','CATEGORY','SP_PRE_VAT','ITEM_CODE','LOYALTY_CUSTOMER_CODE','VAT_AMT']:
@@ -131,7 +123,6 @@ def _process_uploaded_file_bytes(raw_bytes: bytes):
     else:
         df = _minimal_clean_and_derive(raw_df)
 
-    # Store
     st.session_state['raw_df_bytes'] = raw_bytes
     st.session_state['raw_df'] = raw_df
     st.session_state['df'] = df
@@ -146,9 +137,8 @@ def clear_uploaded_data():
 
 def navigate_to(section: str, subsection: str | None = None):
     """
-    Set navigation targets and trigger a rerun in a robust way:
-    - update st.session_state
-    - set query params (this triggers a rerun)
+    Update session_state and query params to trigger a rerun across Streamlit versions
+    without calling experimental_rerun directly.
     """
     st.session_state['section'] = section
     if subsection:
@@ -156,22 +146,65 @@ def navigate_to(section: str, subsection: str | None = None):
     else:
         if 'subsection' in st.session_state:
             del st.session_state['subsection']
-    # Use query params to force a rerun across Streamlit versions
+
+    # Primary route to trigger rerun
     try:
-        # st.experimental_set_query_params will trigger a rerun
         params = {"section": section}
         if subsection:
             params["subsection"] = subsection
         st.experimental_set_query_params(**params)
     except Exception:
-        # As a last fallback, flip an internal token to cause a rerun
+        # fallback: flip a token
         st.session_state['_nav_token'] = not st.session_state.get('_nav_token', False)
 
+def current_section_from_state_or_query():
+    params = {}
+    try:
+        params = st.experimental_get_query_params()
+    except Exception:
+        params = {}
+    s = st.session_state.get('section') or (params.get('section', [''])[0] if 'section' in params else '')
+    if not s:
+        s = "LANDING"
+    return s
+
 # -----------------------
-# UI: Landing page
+# Navigation UI (top bar)
+# -----------------------
+def show_top_nav():
+    """
+    Renders a compact horizontal navigation bar with Home | Sales | Operations | Insights.
+    Call this at the top of section pages (Sales/Operations/Insights) so users can easily
+    go back Home.
+    """
+    section = current_section_from_state_or_query()
+    cols = st.columns([1, 1, 1, 1, 6])  # last column for spacing/controls
+
+    labels = ["Home", "Sales", "Operations", "Insights"]
+    targets = ["LANDING", "SALES", "OPERATIONS", "INSIGHTS"]
+    icons = ["🏠", "🛒", "⚙️", "🔎"]
+
+    for i, (c, label, target, icon) in enumerate(zip(cols[:4], labels, targets, icons)):
+        btn_label = f"{icon} {label}"
+        # Highlight the active tab visually
+        if section == target:
+            c.markdown(f"<div style='padding:8px;border-radius:8px;background:#f0f0f0;font-weight:700;text-align:center;'>{btn_label}</div>", unsafe_allow_html=True)
+        else:
+            c.button(btn_label, key=f"nav_{target}", on_click=lambda t=target: navigate_to(t))
+
+    # rightmost column: show upload status and quick-clear
+    right = cols[4]
+    if st.session_state.get('data_uploaded', False):
+        right.markdown("<div style='text-align:right;color:#2a7f2a;'>✅ Data loaded in session</div>", unsafe_allow_html=True)
+        right.button("Clear uploaded data", on_click=clear_uploaded_data)
+    else:
+        right.markdown("<div style='text-align:right;color:#666;'>No CSV loaded</div>", unsafe_allow_html=True)
+
+# -----------------------
+# Landing UI
 # -----------------------
 def show_landing():
-    # Small CSS to encourage full width usage and compact spacing
+    # CSS for compact layout
     st.markdown(
         """
         <style>
@@ -185,7 +218,7 @@ def show_landing():
         unsafe_allow_html=True
     )
 
-    # Header card
+    # Header
     st.markdown(
         f"""
         <div style="
@@ -212,7 +245,7 @@ def show_landing():
         unsafe_allow_html=True
     )
 
-    # Upload area (full-width row above the three columns)
+    # In-page uploader
     st.markdown("<div style='margin-bottom:6px;'><strong>Upload data (CSV) to run the app</strong></div>", unsafe_allow_html=True)
     left, mid, right = st.columns([1, 2, 1])
 
@@ -235,16 +268,15 @@ def show_landing():
         if st.session_state.get('data_uploaded', False):
             st.markdown("<div style='margin-top:8px; padding:8px; border-radius:8px; background:#f6fff6;'>✅ Data loaded in session.</div>", unsafe_allow_html=True)
             st.button("Clear uploaded data", on_click=clear_uploaded_data)
-
         else:
             st.info("No CSV uploaded. Upload here to enable the full app without the sidebar uploader.")
 
     st.markdown("---")
 
-    # Three columns snapshot
+    # Snapshot columns
     col_sales, col_ops, col_insights = st.columns([1.1, 1, 1])
 
-    # SALES snapshot
+    # Sales
     with col_sales:
         st.markdown("<h3 style='margin-bottom:6px;'>🛒 Sales</h3>", unsafe_allow_html=True)
         df = st.session_state.get('df', None)
@@ -282,10 +314,9 @@ def show_landing():
         st.plotly_chart(fig_spark, width="stretch")
         st.markdown(f"<div style='margin-top:6px;color:#444'><b>Top Channel:</b> {top_channel}</div>", unsafe_allow_html=True)
 
-        # Button uses on_click to avoid calling experimental_rerun directly
         st.button("Go to Sales", on_click=lambda: navigate_to("SALES"))
 
-    # OPERATIONS snapshot
+    # Operations
     with col_ops:
         st.markdown("<h3 style='margin-bottom:6px;'>⚙️ Operations</h3>", unsafe_allow_html=True)
         df = st.session_state.get('df', None)
@@ -314,7 +345,6 @@ def show_landing():
         st.markdown(f"<div style='margin-top:8px;'>Avg customers / till: <b>{avg_customers_per_till:.1f}</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div style='margin-top:6px;color:#444'>Top store (by peak tills): <b>{top_store_till}</b></div>", unsafe_allow_html=True)
 
-        # small bar visual (top stores by sales)
         if df is not None and not df.empty and "STORE_NAME" in df.columns and "NET_SALES" in df.columns:
             try:
                 top_stores = df.groupby("STORE_NAME", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(5)
@@ -326,7 +356,7 @@ def show_landing():
 
         st.button("Go to Operations", on_click=lambda: navigate_to("OPERATIONS"))
 
-    # INSIGHTS snapshot
+    # Insights
     with col_insights:
         st.markdown("<h3 style='margin-bottom:6px;'>🔎 Insights</h3>", unsafe_allow_html=True)
         df = st.session_state.get('df', None)
@@ -374,7 +404,7 @@ def show_landing():
 
         st.button("Go to Insights", on_click=lambda: navigate_to("INSIGHTS"))
 
-    # Footer quick legend
+    # Footer legend
     st.markdown(
         """
         <div class="landing-legend" style="margin-top:16px;">
@@ -388,9 +418,8 @@ def show_landing():
 
 # If run directly, show preview
 if __name__ == "__main__":
-    st.title("Landing — Preview with in-page upload")
+    st.title("Landing — Preview with in-page upload & top nav")
     show_landing()
-
 # -----------------------
 # Data Loading & Caching
 # -----------------------
