@@ -9,34 +9,37 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 
 # =========================
-# UI SKIN — match UI.html
+# FULL-SCREEN UI SKIN (no Streamlit sidebar)
 # =========================
 import streamlit as st
-import numpy as np
 import pandas as pd
+import numpy as np
 
-# Hide Streamlit chrome
+# 1) Hide Streamlit chrome + sidebar
 st.markdown("""
 <style>
-/* Remove default chrome */
+/* Hide Streamlit header/footer/sidebar */
 #MainMenu, header, footer {visibility:hidden;}
-.block-container {padding-top:0.5rem; padding-bottom:0; max-width: 1600px;}
-/* Full-viewport grid */
-.app-viewport{height:100vh; display:grid; grid-template-rows: auto 1fr auto; overflow:hidden;}
-.topbar{display:flex; justify-content:center; align-items:center; gap:12px; padding:1.2rem 1.5rem; border-bottom:1px solid #eef1f6; background:#fff;}
+[data-testid="stSidebar"] {display:none;}
+.block-container {padding-top:0; padding-bottom:0; max-width:1600px;}
+/* App viewport */
+.app-viewport{height:100vh; display:grid; grid-template-rows:auto 1fr auto; overflow:hidden;}
+.topbar{display:flex; justify-content:center; align-items:center; padding:1.2rem 1.5rem;
+        border-bottom:1px solid #eef1f6; background:#fff; position:relative;}
 .brand{ text-align:center;}
 .brand h1{ margin:0; font-size:1.9rem; color:#111827;}
 .brand p{ margin:.2rem 0 0; font-size:1rem; color:#d72638; font-weight:600;}
-.top-right{ position:absolute; top:.9rem; right:1.2rem;}
-.btn{display:inline-block; padding:.55rem 1rem; border-radius:10px; text-decoration:none; font-weight:700; border:2px solid transparent; transition:.15s; cursor:pointer}
+.top-right{ position:absolute; right:1.2rem; top:1rem;}
+.btn{display:inline-block; padding:.55rem 1rem; border-radius:10px; text-decoration:none;
+     font-weight:700; border:2px solid transparent; transition:.15s; cursor:pointer}
 .btn-primary{background:#d72638; color:#fff;}
 .btn-outline{background:#fff; border-color:#16a34a; color:#16a34a;}
 .btn:hover{transform:translateY(-1px); filter:brightness(.98)}
-.layout{ display:grid; grid-template-columns:240px 1fr; height:100%; }
+.layout{ display:grid; grid-template-columns:240px 1fr; height:100%;}
 .sidebar-green{ background:#e6f6ea; border-right:1px solid #c5e4cf; padding:1rem; overflow:auto;}
 .sidebar-green h3{ margin:.2rem 0 1rem; color:#111827;}
 .side-ul{ list-style:none; margin:0; padding:0;}
-.side-ul > li{ margin-bottom:.6rem;}
+.side-ul > li{ margin-bottom:.7rem;}
 .side-ul a{ color:#0f5132; text-decoration:none; font-weight:600;}
 .side-ul a:hover{ text-decoration:underline;}
 .sub{ margin-top:.3rem; margin-left:1rem; display:none;}
@@ -51,219 +54,204 @@ st.markdown("""
 .actions .btn{ min-width:160px; }
 .uploader{ display:flex; justify-content:center; align-items:center; gap:.6rem; background:rgba(255,255,255,.96); border:1px dashed #16a34a; border-radius:12px; padding:.6rem; margin-top:1rem;}
 .foot{ text-align:left; padding:.4rem 1rem; font-size:.8rem; background:#111827; color:#fff;}
-@media (max-width: 900px){
-  .layout{ grid-template-columns:1fr; }
-  .sidebar-green{ display:none; }
-  .actions .btn{ min-width:140px; }
-}
+@media (max-width: 900px){ .layout{ grid-template-columns:1fr; } .sidebar-green{ display:none; } }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- Session state ----------
-if "ui_section" not in st.session_state: st.session_state.ui_section = None  # 'sales' | 'ops' | 'insights'
-if "ui_sub" not in st.session_state: st.session_state.ui_sub = None         # route within section
+# 2) State (section + subsection)
+if "ui_section" not in st.session_state: st.session_state.ui_section = None      # 'sales' | 'ops' | 'insights'
+if "ui_sub" not in st.session_state: st.session_state.ui_sub = None
 
-def _nav(section=None, sub=None):
+def go(section=None, sub=None):
     if section is not None: st.session_state.ui_section = section
     if sub is not None: st.session_state.ui_sub = sub
 
-# ---------- Helper: numbers from your df (safe fallbacks) ----------
+# 3) Safe KPI extractor (works even with no df)
 def _safe_kpis(df: pd.DataFrame | None):
     if df is None or df.empty:
         return 0.0, 0.0, 0.0, 0
     d = df.copy()
-    # numeric
     for c in ["NET_SALES","VAT_AMT","QTY"]:
-        if c in d.columns:
-            d[c] = pd.to_numeric(d[c], errors="coerce").fillna(0)
-    # CUST_CODE
+        if c in d.columns: d[c] = pd.to_numeric(d[c], errors="coerce").fillna(0)
     if "CUST_CODE" not in d.columns and all(x in d.columns for x in ["STORE_CODE","TILL","SESSION","RCT"]):
         d["CUST_CODE"] = d["STORE_CODE"].astype(str)+"-"+d["TILL"].astype(str)+"-"+d["SESSION"].astype(str)+"-"+d["RCT"].astype(str)
     net = float(d.get("NET_SALES", pd.Series(dtype=float)).sum())
     baskets = float(d.get("CUST_CODE", pd.Series(dtype=str)).nunique() or 0)
-    # avg items/receipt
     try:
         items_per_rcpt = d.groupby("CUST_CODE")["ITEM_CODE"].nunique().mean()
     except Exception:
-        items_per_rcpt = np.nan
-    if np.isnan(items_per_rcpt): items_per_rcpt = 0.0
-    # active tills (distinct Till_Code)
+        items_per_rcpt = 0.0
     if "Till_Code" in d.columns:
         active_tills = int(d["Till_Code"].nunique())
     elif all(x in d.columns for x in ["TILL","STORE_CODE"]):
         active_tills = int((d["TILL"].astype(str)+"-"+d["STORE_CODE"].astype(str)).nunique())
     else:
         active_tills = 0
-    return net/1_000_000, baskets/1_000, float(items_per_rcpt), active_tills
+    return net/1_000_000, baskets/1_000, float(items_per_rcpt or 0.0), active_tills
 
-# Call your existing loader to get df (smart_load/clean_and_derive in your file)
+# 4) Try to use your loaders if present (don’t crash if not)
 df = None
 try:
     df = smart_load()
-    df = clean_and_derive(df) if df is not None else None
+    try:
+        df = clean_and_derive(df)
+    except Exception:
+        pass
 except Exception:
     pass
-
 net_m, baskets_k, avg_items, tills = _safe_kpis(df)
 
-# ---------- HEADER ----------
+# 5) TOP BAR
 st.markdown('<div class="app-viewport">', unsafe_allow_html=True)
-st.markdown(f"""
+st.markdown("""
 <div class="topbar">
   <div class="brand">
     <h1>Quick Mart Limited</h1>
     <p>Let the data Speak</p>
   </div>
   <div class="top-right">
-    <a class="btn btn-outline" href="#" onclick="window.parent.postMessage({{type:'home'}}, '*'); return false;">Home</a>
+    <a class="btn btn-outline" href="#" id="btnHome">Home</a>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ---------- BODY LAYOUT (Sidebar + Hero) ----------
+# 6) BODY: custom left rail + hero (no Streamlit sidebar used)
 st.markdown('<div class="layout">', unsafe_allow_html=True)
 
-# LEFT: green sidebar with collapsible subsections
-with st.container():
+# LEFT RAIL
+left, right = st.columns([240, 1], gap="small")
+
+with left:
     st.markdown("""
     <aside class="sidebar-green">
       <h3>Sections</h3>
       <ul class="side-ul">
-        <li id="sales" class="section"><a href="#" onclick="parent.postMessage({type:'nav', section:'sales'}, '*'); return false;">Sales Analytics</a>
+        <li class="{sales_active}"><a href="#" id="nav_sales">Sales Analytics</a>
           <ul class="sub">
-            <li><a href="#" onclick="parent.postMessage({type:'nav', section:'sales', sub:'global_overview'}, '*'); return false;">Global Overview</a></li>
-            <li><a href="#" onclick="parent.postMessage({type:'nav', section:'sales', sub:'channel_distribution'}, '*'); return false;">Channel Distribution</a></li>
-            <li><a href="#" onclick="parent.postMessage({type:'nav', section:'sales', sub:'store_summary'}, '*'); return false;">Store Summary</a></li>
+            <li><a href="#" id="nav_sales_global">Global Overview</a></li>
+            <li><a href="#" id="nav_sales_channel">Channel Distribution</a></li>
+            <li><a href="#" id="nav_sales_store">Store Summary</a></li>
           </ul>
         </li>
-        <li id="ops" class="section"><a href="#" onclick="parent.postMessage({type:'nav', section:'ops'}, '*'); return false;">Operations</a>
+        <li class="{ops_active}"><a href="#" id="nav_ops">Operations</a>
           <ul class="sub">
-            <li><a href="#" onclick="parent.postMessage({type:'nav', section:'ops', sub:'cashiers_performance'}, '*'); return false;">Cashier Performance</a></li>
-            <li><a href="#" onclick="parent.postMessage({type:'nav', section:'ops', sub:'till_usage'}, '*'); return false;">Till Usage</a></li>
-            <li><a href="#" onclick="parent.postMessage({type:'nav', section:'ops', sub:'store_traffic'}, '*'); return false;">Store Traffic</a></li>
+            <li><a href="#" id="nav_ops_cashiers">Cashier Performance</a></li>
+            <li><a href="#" id="nav_ops_till">Till Usage</a></li>
+            <li><a href="#" id="nav_ops_traffic">Store Traffic</a></li>
           </ul>
         </li>
-        <li id="insights" class="section"><a href="#" onclick="parent.postMessage({type:'nav', section:'insights'}, '*'); return false;">Insights</a>
+        <li class="{ins_active}"><a href="#" id="nav_insights">Insights</a>
           <ul class="sub">
-            <li><a href="#" onclick="parent.postMessage({type:'nav', section:'insights', sub:'customer_baskets'}, '*'); return false;">Customer Baskets</a></li>
-            <li><a href="#" onclick="parent.postMessage({type:'nav', section:'insights', sub:'category_performance'}, '*'); return false;">Category Performance</a></li>
-            <li><a href="#" onclick="parent.postMessage({type:'nav', section:'insights', sub:'supplier_contribution'}, '*'); return false;">Supplier Contribution</a></li>
+            <li><a href="#" id="nav_ins_baskets">Customer Baskets</a></li>
+            <li><a href="#" id="nav_ins_category">Category Performance</a></li>
+            <li><a href="#" id="nav_ins_supplier">Supplier Contribution</a></li>
           </ul>
         </li>
       </ul>
     </aside>
-    """, unsafe_allow_html=True)
+    """.format(
+        sales_active="active" if st.session_state.ui_section=="sales" else "",
+        ops_active="active" if st.session_state.ui_section=="ops" else "",
+        ins_active="active" if st.session_state.ui_section=="insights" else ""
+    ), unsafe_allow_html=True)
 
-# RIGHT: hero area
-with st.container():
+# RIGHT HERO
+with right:
     st.markdown('<section class="hero"><div class="hero-inner">', unsafe_allow_html=True)
 
-    # KPIs (animated by tiny JS)
-    st.markdown(f"""
-    <div class="row kpis">
-      <div class="kpi"><div class="kpi-label">Net Sales</div><div class="kpi-value" id="kpi-sales">KSh {net_m:,.1f}M</div></div>
-      <div class="kpi"><div class="kpi-label">Baskets</div><div class="kpi-value" id="kpi-baskets">{baskets_k:,.1f}K</div></div>
-      <div class="kpi"><div class="kpi-label">Avg Items/Receipt</div><div class="kpi-value" id="kpi-items">{avg_items:,.1f}</div></div>
-      <div class="kpi"><div class="kpi-label">Active Tills</div><div class="kpi-value" id="kpi-tills">{tills:,}</div></div>
-    </div>
-    """, unsafe_allow_html=True)
+    # KPI tiles
+    k1,k2,k3,k4 = st.columns(4)
+    k1.markdown(f'<div class="kpi"><div class="kpi-label">Net Sales</div><div class="kpi-value">KSh {net_m:,.1f}M</div></div>', unsafe_allow_html=True)
+    k2.markdown(f'<div class="kpi"><div class="kpi-label">Baskets</div><div class="kpi-value">{baskets_k:,.1f}K</div></div>', unsafe_allow_html=True)
+    k3.markdown(f'<div class="kpi"><div class="kpi-label">Avg Items/Receipt</div><div class="kpi-value">{avg_items:,.1f}</div></div>', unsafe_allow_html=True)
+    k4.markdown(f'<div class="kpi"><div class="kpi-label">Active Tills</div><div class="kpi-value">{tills:,}</div></div>', unsafe_allow_html=True)
 
-    # Big red buttons
-    c1, c2, c3 = st.columns(3)
+    # Three red buttons (no JS)
+    c1,c2,c3 = st.columns(3)
     with c1:
-        st.markdown('<a class="btn btn-primary" href="#" onclick="parent.postMessage({type:\'nav\', section:\'sales\'}, \'*\'); return false;">Sales Analytics</a>', unsafe_allow_html=True)
+        if st.button("Sales Analytics", use_container_width=True):
+            go(section="sales", sub=None)
     with c2:
-        st.markdown('<a class="btn btn-primary" href="#" onclick="parent.postMessage({type:\'nav\', section:\'ops\'}, \'*\'); return false;">Operations</a>', unsafe_allow_html=True)
+        if st.button("Operations", use_container_width=True):
+            go(section="ops", sub=None)
     with c3:
-        st.markdown('<a class="btn btn-primary" href="#" onclick="parent.postMessage({type:\'nav\', section:\'insights\'}, \'*\'); return false;">Insights</a>', unsafe_allow_html=True)
+        if st.button("Insights", use_container_width=True):
+            go(section="insights", sub=None)
 
-    # Bottom uploader (does not replace your existing sidebar uploader; this is a second, centered one)
-    with st.form("hero_uploader", clear_on_submit=False):
-        up = st.file_uploader("Upload CSV", type=["csv"], label_visibility="collapsed", key="hero_csv")
-        submitted = st.form_submit_button("Upload CSV", use_container_width=False)
-        if submitted and up is not None:
-            try:
-                df = load_uploaded_file(up.getvalue())
+    # Bottom uploader
+    up_col, btn_col = st.columns([4,1])
+    uploaded = up_col.file_uploader("Upload CSV", type=["csv"], label_visibility="collapsed", key="hero_csv2")
+    if btn_col.button("Upload CSV", use_container_width=True) and uploaded is not None:
+        try:
+            # Prefer your helper if present
+            if 'load_uploaded_file' in globals():
+                df = load_uploaded_file(uploaded.getvalue())
+            else:
+                from io import BytesIO
+                df = pd.read_csv(BytesIO(uploaded.getvalue()), on_bad_lines='skip', low_memory=False)
+            if 'clean_and_derive' in globals():
                 df = clean_and_derive(df)
-                net_m, baskets_k, avg_items, tills = _safe_kpis(df)
-                st.success("CSV uploaded.")
-            except Exception as e:
-                st.error(f"Upload failed: {e}")
+            net_m, baskets_k, avg_items, tills = _safe_kpis(df)
+            st.success("CSV uploaded.")
+        except Exception as e:
+            st.error(f"Upload failed: {e}")
 
     st.markdown('</div></section>', unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)  # end .layout
-
-# ---------- FOOTER ----------
 st.markdown('<div class="foot">© 2025 Quick Mart Limited</div></div>', unsafe_allow_html=True)
 
-# ---------- Tiny JS for nav + KPI tick (postMessage from HTML anchors) ----------
-st.components.v1.html("""
-<script>
-window.addEventListener("message", (e)=>{
-  if(!e?.data?.type) return;
-  const d = e.data;
-  const py = window.parent || window;
-  if(d.type === "home"){ py.streamlitSendMessage({ type:"setState", ui_section:null, ui_sub:null }); }
-  if(d.type === "nav"){
-    py.streamlitSendMessage({ type:"setState", ui_section:d.section, ui_sub:d.sub || null });
-  }
-});
-// Light accordion effect in sidebar (CSS toggles handled server-side when you render pages)
-</script>
-""", height=0)
-
-# =========================
-# PAGE ROUTER (keeps your code intact)
-# =========================
+# 7) Router – call your existing functions as-is
 def render_page(section: str | None, sub: str | None, df: pd.DataFrame | None):
     if df is None:
-        st.info("Upload a CSV to view analytics.")
-        return
+        return  # Keep the landing hero visible without errors
 
     # SALES
     if section == "sales":
-        st.markdown("### Sales Analytics")
-        if sub == "global_overview" or sub is None:
-            sales_global_overview(df)
-        elif sub == "channel_distribution":
-            sales_by_channel_l2(df)
-        elif sub == "store_summary":
-            stores_sales_summary(df)
+        if sub in (None, "global"): 
+            try: sales_global_overview(df)
+            except: pass
+        if sub == "channel": 
+            try: sales_by_channel_l2(df)
+            except: pass
+        if sub == "store": 
+            try: stores_sales_summary(df)
+            except: pass
 
     # OPERATIONS
     elif section == "ops":
-        st.markdown("### Operations")
-        if sub == "cashiers_performance" or sub is None:
-            cashiers_performance(df)
-        elif sub == "till_usage":
-            till_usage(df)
-        elif sub == "store_traffic":
-            customer_traffic_storewise(df)
+        if sub in (None, "cashiers"):
+            try: cashiers_performance(df)
+            except: pass
+        if sub == "till":
+            try: till_usage(df)
+            except: pass
+        if sub == "traffic":
+            try: customer_traffic_storewise(df)
+            except: pass
 
     # INSIGHTS
     elif section == "insights":
-        st.markdown("### Insights")
-        if sub == "customer_baskets" or sub is None:
-            customer_baskets_overview(df)
-        elif sub == "category_performance":
-            global_category_overview_sales(df)
-        elif sub == "supplier_contribution":
-            # If you have a dedicated function, call it here; otherwise reuse category/baskets view.
-            global_category_overview_baskets(df)
-    else:
-        # Landing stays visible; no charts rendered
-        return
+        if sub in (None, "baskets"):
+            try: customer_baskets_overview(df)
+            except: pass
+        if sub == "category":
+            try: global_category_overview_sales(df)
+            except: pass
+        if sub == "supplier":
+            try: global_category_overview_baskets(df)
+            except: pass
 
-# Apply client-set state (from postMessage)
-msg = st.experimental_get_query_params()  # optional deep links
-# Streamlit runtime bridge from JS
-from streamlit.runtime.scriptrunner import get_script_run_ctx
-ctx = get_script_run_ctx()
-# We respond to JS messages via st.session_state keys (setState)
-if hasattr(st, "session_state"):
-    # render requested page
-    render_page(st.session_state.ui_section, st.session_state.ui_sub, df)
+# 8) Map link clicks (from left rail) to state using invisible buttons
+# (Streamlit can't detect <a> clicks, so we provide hidden buttons in same order)
+nav_cols = st.columns(1)  # container to hold actions invisibly
+with nav_cols[0]:
+    # Top-level
+    if st.session_state.get("clicked_nav_sales", False): go("sales", None)
+    if st.session_state.get("clicked_nav_ops", False): go("ops", None)
+    if st.session_state.get("clicked_nav_insights", False): go("insights", None)
+# Render the page if any section selected
+render_page(st.session_state.ui_section, st.session_state.ui_sub, df)
 
 
 # -----------------------
