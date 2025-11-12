@@ -1,0 +1,230 @@
+<body>
+  <main class="viewport">
+    <header class="topbar no-logo">
+      <div class="brand centered">
+        <div class="brand-text">
+          <h1>Quick Mart Limited</h1>
+          <p>Let the data Speak</p>
+        </div>
+      </div>
+      <nav class="nav-buttons">
+        <a class="btn btn-outline" href="/home">Home</a>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" role="navigation" aria-label="Main sections">
+        <h3>Sections</h3>
+        <ul>
+          <li class="section" id="sales-section">
+            <a href="#" onclick="showSub('sales')" aria-expanded="false">Sales Analytics ▾</a>
+            <ul class="sub" id="sales-sub" role="menu" aria-label="Sales Subsections">
+              <li role="menuitem"><a href="/app/sales/global-overview">Global Overview</a></li>
+              <li role="menuitem"><a href="/app/sales/channel-distribution">Channel Distribution (L1)</a></li>
+              <li role="menuitem"><a href="/app/sales/channel-distribution-l2">Channel Distribution (L2)</a></li>
+              <li role="menuitem"><a href="/app/sales/shift-distribution">Shift Distribution</a></li>
+              <li role="menuitem"><a href="/app/sales/night-vs-day">Night vs Day — Store Ratio</a></li>
+              <li role="menuitem"><a href="/app/sales/global-day-night">Global Day vs Night</a></li>
+              <li role="menuitem"><a href="/app/sales/second-channel">2nd-Highest Channel Share</a></li>
+              <li role="menuitem"><a href="/app/sales/bottom-30-second-channel">Bottom 30 — 2nd Highest</a></li>
+              <li role="menuitem"><a href="/app/sales/store-summary">Store Sales Summary</a></li>
+              <li role="menuitem"><a href="/app/sales/top-stores">Top Stores by Sales</a></li>
+            </ul>
+          </li>
+
+          <li class="section" id="ops-section">
+            <a href="#" onclick="showSub('ops')" aria-expanded="false">Operations ▾</a>
+            <ul class="sub" id="ops-sub" role="menu" aria-label="Operations Subsections">
+              <li role="menuitem"><a href="/app/operations/cashier-performance">Cashier Performance</a></li>
+              <li role="menuitem"><a href="/app/operations/till-usage">Till Usage</a></li>
+              <li role="menuitem"><a href="/app/operations/store-traffic">Store Traffic (Heatmap)</a></li>
+              <li role="menuitem"><a href="/app/operations/active-tills">Peak Active Tills</a></li>
+              <li role="menuitem"><a href="/app/operations/avg-customers-per-till">Avg Customers / Till</a></li>
+              <li role="menuitem"><a href="/app/operations/department-traffic">Department Traffic</a></li>
+              <li role="menuitem"><a href="/app/operations/tax-compliance">Tax Compliance</a></li>
+              <li role="menuitem"><a href="/app/operations/till-diagnostics">Till Diagnostics</a></li>
+              <li role="menuitem"><a href="/app/operations/peak-hours">Peak Hours Analysis</a></li>
+            </ul>
+          </li>
+
+          <li class="section" id="insights-section">
+            <a href="#" onclick="showSub('insights')" aria-expanded="false">Insights ▾</a>
+            <ul class="sub" id="insights-sub" role="menu" aria-label="Insights Subsections">
+              <li role="menuitem"><a href="/app/insights/customer-baskets">Customer Baskets</a></li>
+              <li role="menuitem"><a href="/app/insights/category-sales">Category Overview — Sales</a></li>
+              <li role="menuitem"><a href="/app/insights/category-baskets">Category Overview — Baskets</a></li>
+              <li role="menuitem"><a href="/app/insights/supplier-contribution">Supplier Contribution</a></li>
+              <li role="menuitem"><a href="/app/insights/category-performance">Category Performance</a></li>
+              <li role="menuitem"><a href="/app/insights/branch-comparison">Branch Comparison</a></li>
+              <li role="menuitem"><a href="/app/insights/product-performance">Product Performance</a></li>
+              <li role="menuitem"><a href="/app/insights/global-loyalty">Global Loyalty Overview</a></li>
+              <li role="menuitem"><a href="/app/insights/branch-loyalty">Branch Loyalty Overview</a></li>
+              <li role="menuitem"><a href="/app/insights/customer-loyalty">Customer Loyalty Overview</a></li>
+              <li role="menuitem"><a href="/app/insights/global-pricing">Global Pricing — Multi-priced SKUs</a></li>
+              <li role="menuitem"><a href="/app/insights/branch-pricing">Branch Pricing Overview</a></li>
+              <li role="menuitem"><a href="/app/insights/global-refunds">Global Refunds Overview</a></li>
+              <li role="menuitem"><a href="/app/insights/branch-refunds">Branch Refunds Overview</a></li>
+              <li role="menuitem"><a href="/app/insights/pricing-issues">Pricing Issues & Alerts</a></li>
+              <li role="menuitem"><a href="/app/insights/loyalty-opportunities">Loyalty Opportunities</a></li>
+            </ul>
+          </li>
+        </ul>
+      </aside>
+
+      <section class="hero-fit expanded" role="main">
+        <div class="hero-overlay">
+          <div class="row kpis" aria-hidden="false">
+            <div class="kpi">
+              <div class="kpi-label">Net Sales</div>
+              <div class="kpi-value" data-target="128.4" aria-live="polite">KSh 0M</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">Baskets</div>
+              <div class="kpi-value" data-target="64.2" aria-live="polite">0K</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">Avg Items/Receipt</div>
+              <div class="kpi-value" data-target="5.8" aria-live="polite">0.0</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">Active Tills</div>
+              <div class="kpi-value" data-target="142" aria-live="polite">0</div>
+            </div>
+          </div>
+
+          <div class="row actions">
+            <a id="btnSales" class="btn btn-primary" href="#" onclick="showSub('sales')">Sales Analytics</a>
+            <a id="btnOps" class="btn btn-primary" href="#" onclick="showSub('ops')">Operations</a>
+            <a id="btnInsights" class="btn btn-primary" href="#" onclick="showSub('insights')">Insights</a>
+          </div>
+
+          <form class="row uploader" action="/upload" method="POST" enctype="multipart/form-data" aria-label="Upload CSV">
+            <input type="file" name="file" accept=".csv" aria-label="Upload CSV file"/>
+            <button class="btn btn-outline" type="submit">Upload CSV</button>
+          </form>
+        </div>
+      </section>
+    </div>
+
+    <footer class="footnote">© 2025 Quick Mart Limited</footer>
+  </main>
+
+  <style>
+    html, body { height:100%; }
+    body { overflow:hidden; font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+    .viewport{ height:100vh; display:grid; grid-template-rows:auto 1fr auto; }
+    .topbar.no-logo{ display:flex; justify-content:space-between; align-items:center; padding:2rem 1.5rem; background:#fff; border-bottom:1px solid #eef1f6; }
+    .brand.centered{ margin:0 auto; text-align:center; display:flex; flex-direction:column; align-items:center; }
+    .brand-text h1{ font-size:2rem; margin:.2rem 0 0 0; color:#111827; }
+    .brand-text p{ margin:0; font-size:1rem; color:#d72638; font-weight:600; }
+
+    .nav-buttons{ position:absolute; top:1.5rem; right:1.5rem; }
+
+    .layout{ display:grid; grid-template-columns:260px 1fr; height:100%; }
+    .sidebar{ background:#e6f6ea; border-right:1px solid #c5e4cf; padding:1rem; overflow-y:auto; }
+    .sidebar h3{ margin:0 0 .8rem 0; color:#111827; }
+    .sidebar ul{ list-style:none; margin:0; padding:0; }
+    .sidebar ul li{ margin-bottom:.6rem; }
+    .sidebar ul li a{ color:#0f5132; text-decoration:none; font-weight:700; display:block; padding:.35rem .4rem; border-radius:8px; }
+    .sidebar ul li a[aria-expanded="true"]{ color:#16a34a; background:rgba(22,163,74,0.06); }
+    .sidebar ul li ul{ margin-top:.3rem; margin-left:0.8rem; display:none; }
+    .sidebar ul li ul li a{ color:#111827; font-weight:600; padding:.25rem .5rem; font-size:.95rem; }
+    .sidebar ul li a:hover{ text-decoration:none; background:rgba(0,0,0,0.04); }
+
+    .sidebar ul li.active > ul{ display:block; }
+    .sidebar ul li.active > a{ color:#16a34a; }
+
+    .hero-fit.expanded{ position:relative; background:#f8fafc; display:flex; justify-content:center; align-items:flex-start; }
+    .hero-overlay{ width:100%; max-width:1200px; padding:2rem; }
+
+    .row{ display:flex; justify-content:center; align-items:center; gap:1rem; flex-wrap:wrap; }
+    .kpis{ align-self:center; flex-wrap:wrap; gap:1rem; }
+    .kpi{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem 1.5rem; min-width:200px; text-align:center; box-shadow:0 4px 10px rgba(0,0,0,0.05); }
+    .kpi-label{ font-size:.9rem; color:#6b7280; }
+    .kpi-value{ font-size:1.5rem; font-weight:700; color:#111827; }
+
+    .actions .btn{ min-width:160px; text-align:center; }
+
+    .uploader{ justify-content:center; gap:.6rem; background:rgba(255,255,255,.96); border:1px dashed #16a34a; border-radius:12px; padding:.6rem; margin-top:1rem; }
+    .uploader input[type=file]{ max-width:360px; }
+
+    .btn{display:inline-block;padding:.6rem 1rem;border-radius:10px;text-decoration:none;font-weight:700;border:2px solid transparent;transition:.15s}
+    .btn-primary{background:#d72638;color:#fff}
+    .btn-primary:hover{transform:translateY(-1px);filter:brightness(.98)}
+    .btn-outline{background:#fff;border-color:#16a34a;color:#16a34a}
+    .btn-outline:hover{background:#16a34a;color:#fff}
+
+    .footnote{ text-align:left; padding:.5rem 1rem; font-size:.8rem; background:#111827; color:#fff; }
+
+    /* responsive */
+    @media (max-width: 1200px){
+      .layout{ grid-template-columns:220px 1fr; }
+      .sidebar{ padding:.8rem; }
+    }
+    @media (max-width: 900px){
+      .layout{ grid-template-columns:1fr }
+      .sidebar{ display:none }
+      .kpi{ min-width:140px }
+      .actions .btn{ min-width:140px }
+      .hero-overlay{ padding:1rem; }
+    }
+
+    /* subtle accessibility focus */
+    .sidebar a:focus, .btn:focus { outline:3px solid rgba(22,163,74,0.15); outline-offset:2px; }
+  </style>
+
+  <script>
+    // formatting helpers
+    const formatMoney = (v)=>`KSh ${v.toFixed(1)}M`;
+    const formatK = (v)=>`${v.toFixed(1)}K`;
+
+    function runCounters(){
+      document.querySelectorAll('.kpi .kpi-value').forEach(el=>{
+        const target = parseFloat(el.getAttribute('data-target'))||0;
+        const hasMoney = el.textContent.includes('KSh') || el.getAttribute('data-target-type') === 'money';
+        const endsK = el.textContent.endsWith('K');
+        let start = 0, duration = 900, t0=null;
+        function step(ts){
+          if(!t0) t0=ts; const p=Math.min((ts-t0)/duration,1);
+          const val = start + (target-start)*p;
+          el.textContent = hasMoney?formatMoney(val):(endsK?formatK(val):val.toFixed(1));
+          if(p<1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      });
+    }
+
+    // show/hide subsections and highlight active section
+    function showSub(section){
+      ['sales','ops','insights'].forEach(s=>{
+        const sec = document.getElementById(`${s}-section`);
+        const link = sec.querySelector('a');
+        const sub = document.getElementById(`${s}-sub`);
+        if(s === section){
+          sec.classList.add('active');
+          link.setAttribute('aria-expanded','true');
+          sub.style.display = 'block';
+          // move focus to first sub item for keyboard users
+          const first = sub.querySelector('a');
+          if(first) first.focus();
+        } else {
+          sec.classList.remove('active');
+          link.setAttribute('aria-expanded','false');
+          sub.style.display = 'none';
+        }
+      });
+    }
+
+    // initialize: open Sales by default
+    document.addEventListener('DOMContentLoaded', ()=>{
+      showSub('sales');
+      runCounters();
+      // wire keyboard toggle: pressing 1,2,3 to toggle sections
+      document.addEventListener('keydown', (e)=>{
+        if (e.key === '1') showSub('sales');
+        if (e.key === '2') showSub('ops');
+        if (e.key === '3') showSub('insights');
+      });
+    });
+  </script>
+</body>
