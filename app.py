@@ -1,6 +1,3 @@
-# ===============================================
-# DailyDeck — Smart Decisions Dashboard (Streamlit)
-# ===============================================
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,186 +5,153 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 
-# Streamlit page setup
-st.set_page_config(layout="wide", page_title="DailyDeck — Let the Data Talk")
+import streamlit as st
 
-# =========================================================
-# 🎨 Theme & Styles: Sidebar + Insight Cards
-# =========================================================
-def apply_deck_theme():
+def landing_data_talks():
+    # Theme + animations (red/green)
     st.markdown("""
     <style>
-      :root{
-        --brand-green:#0FA34B;
-        --brand-red:#E53935;
-        --ink:#0b1f10;
-        --muted:#265a3c;
-        --card-bg:#ffffff;
+      .stApp{ background: linear-gradient(135deg,#0FA34B 0%,#14C265 38%,#F04343 100%) fixed; }
+      /* glass shell */
+      .glass{
+        background: rgba(255,255,255,0.94);
+        border:1px solid rgba(255,255,255,.65);
+        border-radius: 22px;
+        box-shadow: 0 24px 70px rgba(0,0,0,.15);
+        padding: 28px;
       }
+      .title{
+        font-size: 54px; font-weight: 900; margin: 0 0 6px 0;
+        background: linear-gradient(90deg,#0B2916,#0FA34B);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      }
+      .subtitle{ font-size: 22px; font-weight: 800; color:#0F5132; margin: 2px 0 14px; }
 
-      /* Sidebar: red→white blend with glassy overlay */
-      [data-testid="stSidebar"]{
-        background: linear-gradient(180deg, rgba(229,57,53,0.12) 0%, rgba(255,255,255,0.92) 60%, #ffffff 100%);
-        backdrop-filter: blur(8px);
-        border-right: 1px solid rgba(229,57,53,0.22);
-      }
-      [data-testid="stSidebar"] .stFileUploader{
-        border: 1px dashed rgba(229,57,53,0.35);
-        border-radius: 14px;
-        padding: 10px 12px;
-        background: rgba(255,255,255,0.6);
-        transition: all 0.25s ease;
-      }
-      [data-testid="stSidebar"] .stFileUploader:hover{
-        border-color: var(--brand-red);
-        background: rgba(255,255,255,0.9);
-      }
+      /* pulse divider */
+      .pulse{ height:4px; border-radius:999px;
+        background: linear-gradient(90deg,#E53935,#43A047,#E53935);
+        background-size: 300% 100%; animation: move 5s linear infinite; opacity:.9; }
+      @keyframes move{ 0%{background-position:0% 50%} 100%{background-position:100% 50%} }
 
-      /* Card grid */
-      .deck-cards{
-        display:grid; gap:22px;
-      }
+      /* chips */
+      .chip{ display:inline-block; padding:8px 12px; margin:6px 6px 0 0;
+        border-radius:999px; font-weight:700; font-size:12.5px;
+        background:#F7FFF9; border:1px solid #DDEFE6; color:#0E4F2B; }
 
-      /* Insight card style */
-      .deck-card{
-        position:relative;
-        border-radius: 24px;
-        padding: 24px 20px 18px;
-        background: linear-gradient(180deg,#ffffff 0%, #f8fff9 100%);
-        box-shadow: 0 20px 48px rgba(0,0,0,.08);
-        border: 1px solid #e8f3ec;
-        overflow:hidden;
+      /* three decision cards */
+      .cards{ display:grid; grid-template-columns: repeat(3, minmax(240px,1fr)); gap:16px; }
+      .card{
+        background: linear-gradient(180deg,#ffffff 0%, #f7fff9 100%);
+        border:1px solid #E7F2EA; border-radius:18px; padding:16px;
+        box-shadow:0 14px 38px rgba(0,0,0,.10); transition:.2s;
       }
-      .deck-card:before{
-        content:"";
-        position:absolute; inset:0; border-radius:24px; padding:1px;
-        background: linear-gradient(90deg, rgba(15,163,75,.55), rgba(229,57,53,.45));
-        -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-        -webkit-mask-composite: xor; mask-composite: exclude;
-        pointer-events:none;
-      }
+      .card:hover{ transform: translateY(-3px); box-shadow:0 20px 50px rgba(0,0,0,.18); }
+      .card h3{ margin:0; font-size:18px; color:#0C3A21; }
+      .card p{ margin:6px 0 10px; color:#255B3E; font-size:13.5px; }
+      .kpi{ display:flex; gap:10px; margin-top:8px; }
+      .pill{ padding:6px 10px; border-radius:12px; font-weight:800; font-size:12px; }
+      .pill.g{ background:#E8F7EE; color:#0E6B3A; border:1px solid #CDEED9; }
+      .pill.r{ background:#FDEBEC; color:#AA1E23; border:1px solid #F8C8CB; }
 
-      .deck-title{
-        font-weight: 800; font-size: 21px; color: var(--ink);
-        display:flex; gap:8px; align-items:center;
-      }
-      .deck-emoji{
-        width:34px; height:34px; border-radius:10px; display:grid; place-items:center;
-        background: radial-gradient(120% 120% at 30% 20%, rgba(15,163,75,.18), rgba(229,57,53,.14));
-        border: 1px solid rgba(0,0,0,.06);
-      }
-      .deck-desc{ color:#356b4a; margin:6px 0 12px; font-size:15px; }
+      /* image row */
+      .imgrow{ display:grid; grid-template-columns:repeat(3,minmax(220px,1fr)); gap:12px; margin-top:14px; }
+      .imgbox{ overflow:hidden; border-radius:16px; border:1px solid #EAEFF2; }
+      .imgbox img{ width:100%; height:150px; object-fit:cover; transition: transform .4s; }
+      .imgbox:hover img{ transform: scale(1.05); }
 
-      /* Badges */
-      .badges{ display:flex; gap:10px; flex-wrap:wrap; }
-      .badge{ font-weight:800; font-size:13px; padding:8px 12px; border-radius:999px; display:inline-flex; gap:6px; align-items:center; }
-      .good{ background:#E8F7EE; color:#0E6B3A; border:1px solid #CDEED9; }
-      .warn{ background:#FDEBEC; color:#AA1E23; border:1px solid #F8C8CB; }
+      /* CTA */
+      .cta{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+      .btn{ padding:12px 18px; border-radius:14px; font-weight:900; letter-spacing:.2px; display:inline-block; }
+      .primary{ background:#E53935; color:#fff; box-shadow:0 10px 28px rgba(229,57,53,.35); }
+      .ghost{ border:2px dashed #0FA34B; color:#0A7A39; background:rgba(15,163,75,.08); }
 
-      /* Divider line between stacked cards */
-      .deck-card + .deck-card{ margin-top:8px; }
-
-      /* Main header styling */
-      .main-title{
-        font-size: 48px; font-weight:900; margin-bottom:4px;
-        background: linear-gradient(90deg, var(--brand-green), var(--brand-red));
-        -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-      }
-      .subhead{
-        font-size:18px; font-weight:600; color:#0f5132; margin-bottom:18px;
-      }
+      /* hide default sidebar alert */
+      [data-testid="stSidebar"] [role="alert"] { display:none !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# =========================================================
-# 💡 Insight Cards Renderer
-# =========================================================
-def render_decision_cards():
-    apply_deck_theme()
-    st.markdown("""
-    <div class="deck-cards">
+    # Layout
+    left, right = st.columns([1.05, 1])
+    with left:
+        st.markdown('<div class="glass">', unsafe_allow_html=True)
+        st.markdown('<div class="title">Let the Data Talk.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="subtitle">Sales · Operations · Insights — Make Smart Decisions.</div>', unsafe_allow_html=True)
+        st.write("DailyDeck listens to your transactions and **tells the story** behind performance — "
+                 "what sold, how teams operated, and what to fix or double-down on.")
+        st.markdown('<div class="pulse"></div>', unsafe_allow_html=True)
 
-      <div class="deck-card">
-        <div class="deck-title">
-          <span class="deck-emoji">📈</span>
-          <span>Sales — Hear the Trend</span>
+        # Curiosity chips
+        chips = [
+            "Top-X Items by Receipts", "Channel Mix & Shift Balance", "Cashier Throughput",
+            "Basket Affinity & Attach Rate", "Tax Compliance Pulse", "Store vs Store Benchmarks"
+        ]
+        st.markdown("".join([f'<span class="chip">{c}</span>' for c in chips]), unsafe_allow_html=True)
+
+        st.write("")  # spacer
+
+        # Decision cards (Sales / Operations / Insights)
+        st.markdown('<div class="cards">', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="card">
+          <h3>📈 Sales — Hear the Trend</h3>
+          <p>See momentum by hour, discover hero SKUs, and flag silent shelves.</p>
+          <div class="kpi">
+            <span class="pill g">↑ Best Seller Surge</span>
+            <span class="pill r">⚠ Price Spread</span>
+          </div>
         </div>
-        <div class="deck-desc">
-          Momentum by hour, hero SKUs, and price-spread patterns that reveal growth or hidden loss.
+        """, unsafe_allow_html=True)
+        st.markdown("""
+        <div class="card">
+          <h3>🛠 Operations — Feel the Rhythm</h3>
+          <p>Till activity, cashier pace, and shift balance — smooth flow = more revenue.</p>
+          <div class="kpi">
+            <span class="pill g">↑ Till Utilization</span>
+            <span class="pill r">⏱ Bottlenecks</span>
+          </div>
         </div>
-        <div class="badges">
-          <span class="badge good">✔ Best Seller Surge</span>
-          <span class="badge warn">⚠ Price Anomalies</span>
+        """, unsafe_allow_html=True)
+        st.markdown("""
+        <div class="card">
+          <h3>🧠 Insights — Act with Confidence</h3>
+          <p>Promo pairings, store league tables, and zero-sales opportunities to capture.</p>
+          <div class="kpi">
+            <span class="pill g">✓ Promo Fit</span>
+            <span class="pill r">✕ Missed Demand</span>
+          </div>
         </div>
-      </div>
+        """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-      <div class="deck-card">
-        <div class="deck-title">
-          <span class="deck-emoji">🛠️</span>
-          <span>Operations — Feel the Rhythm</span>
-        </div>
-        <div class="deck-desc">
-          Till activity, cashier pace, and shift balance — smoother operations mean better sales flow.
-        </div>
-        <div class="badges">
-          <span class="badge good">↑ Till Utilization</span>
-          <span class="badge warn">⏱ Bottlenecks</span>
-        </div>
-      </div>
+        # CTA
+        st.markdown('<div class="cta">'
+                    '<span class="btn primary">⬆ Upload your CSV on the left</span>'
+                    '<span class="btn ghost">Your dashboard will talk back</span>'
+                    '</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-      <div class="deck-card">
-        <div class="deck-title">
-          <span class="deck-emoji">🧠</span>
-          <span>Insights — Act with Confidence</span>
-        </div>
-        <div class="deck-desc">
-          Affinity pairs, category gaps, and store league tables that uncover where to act next.
-        </div>
-        <div class="badges">
-          <span class="badge good">✓ Promo Fit</span>
-          <span class="badge warn">✕ Missed Demand</span>
-        </div>
-      </div>
+        # Live-feel placeholders (native)
+        a,b,c = st.columns(3)
+        a.metric("🧺 Baskets / hr", "—")
+        b.metric("🧾 Avg Items / Receipt", "—")
+        c.metric("🌙 Night vs Day", "—")
 
-    </div>
-    """, unsafe_allow_html=True)
-
-# =========================================================
-# 📂 Data Loader & Gate
-# =========================================================
-uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=["csv"])
-
-# If nothing uploaded, show themed landing (cards act as intro)
-if uploaded is None and "df_ready" not in st.session_state:
-    st.markdown("<div class='main-title'>Let the Data Talk.</div>", unsafe_allow_html=True)
-    st.markdown("<div class='subhead'>Sales · Operations · Insights — Make Smart Decisions.</div>", unsafe_allow_html=True)
-    render_decision_cards()
-    st.stop()
-
-# When data is uploaded for first time
-if uploaded is not None and "df_ready" not in st.session_state:
-    try:
-        df = pd.read_csv(uploaded, on_bad_lines="skip", low_memory=False)
-    except Exception as e:
-        st.error(f"⚠️ Failed to load CSV: {e}")
-        st.stop()
-    st.session_state.df = df
-    st.session_state.df_ready = True
-
-df = st.session_state.get("df")
-
-# =========================================================
-# 📊 Main App Section (after data loads)
-# =========================================================
-st.markdown("<div class='main-title'>DailyDeck</div>", unsafe_allow_html=True)
-st.markdown("<div class='subhead'>The Story Behind the Numbers</div>", unsafe_allow_html=True)
-
-if df is not None:
-    st.success("✅ Data loaded successfully. You're ready to explore Sales, Operations, and Insights.")
-    st.dataframe(df.head(20), use_container_width=True)
-else:
-    st.info("Upload a CSV file from the sidebar to begin.")
-
+    with right:
+        # Insightful, generic images (Unsplash)
+        st.markdown('<div class="glass">', unsafe_allow_html=True)
+        st.caption("What your data will surface visually")
+        st.markdown('<div class="imgrow">', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="imgbox"><img src="https://images.unsplash.com/photo-1515165562835-c3b8b0b1a9a7?q=80&w=1200&auto=format&fit=crop"></div>',
+            unsafe_allow_html=True)
+        st.markdown(
+            '<div class="imgbox"><img src="https://images.unsplash.com/photo-1542831371-29b0f74f9713?q=80&w=1200&auto=format&fit=crop"></div>',
+            unsafe_allow_html=True)
+        st.markdown(
+            '<div class="imgbox"><img src="https://images.unsplash.com/photo-1519337265831-281ec6cc8514?q=80&w=1600&auto=format&fit=crop"></div>',
+            unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # -----------------------
 # Data Loading & Caching
