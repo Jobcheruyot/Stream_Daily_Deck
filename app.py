@@ -1091,43 +1091,43 @@ def customer_traffic_departmentwise(df):
     store_customer_traffic_storewise(df)
 
 def cashiers_performance(df: pd.DataFrame):
-    import plotly.express as px
-    import numpy as np
     import pandas as pd
+    import numpy as np
+    import plotly.express as px
     import streamlit as st
 
     st.header("Cashiers Perfomance")
 
-    # ===== 1) Prepare Data =====
-    if 'TRN_DATE' not in df.columns:
-        st.warning("Missing TRN_DATE")
+    # =========================
+    # 1) Prepare Data
+    # =========================
+    required_base_cols = ['TRN_DATE', 'STORE_NAME', 'STORE_CODE', 'TILL', 'SESSION', 'RCT', 'CASHIER', 'ITEM_CODE']
+    missing_base = [c for c in required_base_cols if c not in df.columns]
+    if missing_base:
+        st.warning(f"Missing column(s): {missing_base}")
         return
 
     d = df.copy()
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
     d = d.dropna(subset=['TRN_DATE']).copy()
 
-    # Ensure identifiers exist (and are strings)
-    required_id_cols = ['STORE_CODE', 'TILL', 'SESSION', 'RCT', 'CASHIER', 'ITEM_CODE']
-    missing = [c for c in required_id_cols if c not in d.columns]
-    if missing:
-        st.warning(f"Missing column(s) in dataset: {missing}")
-        return
-    for c in required_id_cols + ['STORE_NAME']:
-        if c in d.columns:
-            d[c] = d[c].astype(str).fillna('').str.strip()
+    # Ensure identifiers are strings
+    for c in ['STORE_NAME', 'STORE_CODE', 'TILL', 'SESSION', 'RCT', 'CASHIER', 'ITEM_CODE']:
+        d[c] = d[c].astype(str).fillna('').str.strip()
 
-    # Build CUST_CODE if not present
+    # CUST_CODE (unique receipt id)
     if 'CUST_CODE' not in d.columns:
         d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
     else:
         d['CUST_CODE'] = d['CUST_CODE'].astype(str).fillna('').str.strip()
 
-    # Create unique cashier per store (match your naming)
+    # Unique cashier per store
     if 'CASHIER-COUNT' not in d.columns:
         d['CASHIER-COUNT'] = d['STORE_NAME'] + '-' + d['CASHIER']
 
-    # ===== 2) Receipt-level duration (min) and item count =====
+    # =========================
+    # 2) Receipt-level duration and item count
+    # =========================
     receipt_duration = (
         d.groupby(['STORE_NAME', 'CUST_CODE'], as_index=False)
          .agg(Start_Time=('TRN_DATE', 'min'),
@@ -1148,7 +1148,9 @@ def cashiers_performance(df: pd.DataFrame):
         on=['STORE_NAME', 'CUST_CODE'], how='left'
     )
 
-    # ===== 3) Store-level summary (table at the end) =====
+    # =========================
+    # 3) Store-level summary (table)
+    # =========================
     store_summary = (
         receipt_stats.groupby('STORE_NAME', as_index=False)
         .agg(
@@ -1164,7 +1166,9 @@ def cashiers_performance(df: pd.DataFrame):
     store_summary.index.name = '#'
     store_summary['Total_Customers'] = store_summary['Total_Customers'].map('{:,.0f}'.format)
 
-    # ===== 4) Cashier summary (duration + customer count + avg items/receipt) =====
+    # =========================
+    # 4) Cashier summary (duration + customers)
+    # =========================
     merged_for_duration = d.merge(
         receipt_stats[['STORE_NAME', 'CUST_CODE', 'Duration_Sec']],
         on=['STORE_NAME', 'CUST_CODE'], how='left'
@@ -1194,23 +1198,43 @@ def cashiers_performance(df: pd.DataFrame):
         cashier_durations['Avg_Items_per_Receipt_Cashier'].round(1)
     )
 
-    # ===== 5) Dropdown chart per branch (matches your intended look) =====
+    # --- Avg quantity per scanned item per cashier ---
+    if 'QTY' in d.columns:
+        d['QTY'] = pd.to_numeric(d['QTY'], errors='coerce').fillna(0)
+        _line_qty = d[['STORE_NAME', 'CUST_CODE', 'QTY']].copy()
+        _rc_qty = _receipt_cashier.merge(_line_qty, on=['STORE_NAME', 'CUST_CODE'], how='left')
+        _avg_qty_cashier = (
+            _rc_qty.groupby(['STORE_NAME', 'CASHIER-COUNT'], as_index=False)['QTY']
+                   .mean()
+                   .rename(columns={'QTY': 'Avg_Qty_per_Scanned_Item'})
+        )
+        cashier_durations = cashier_durations.merge(
+            _avg_qty_cashier, on=['STORE_NAME', 'CASHIER-COUNT'], how='left'
+        )
+        cashier_durations['Avg_Qty_per_Scanned_Item'] = cashier_durations['Avg_Qty_per_Scanned_Item'].round(2)
+    else:
+        cashier_durations['Avg_Qty_per_Scanned_Item'] = np.nan
+
+    # =========================
+    # 5) Branch dropdown chart
+    # =========================
     branches = sorted(store_summary['STORE_NAME'].unique().tolist())
     if not branches:
         st.info("No branches found.")
         return
 
-    # Initial branch
-    init_branch = branches[0]
     branch_data = {
         b: cashier_durations[cashier_durations['STORE_NAME'] == b].sort_values('Avg_Serve_Min')
         for b in branches
     }
+
+    init_branch = branches[0]
     df_branch = branch_data[init_branch].copy()
     df_branch['Label_Text'] = (
         df_branch['Avg_Serve_Min'].astype(str) + ' min (' +
         df_branch['Customers_Served'].astype(str) + ' customers) — ' +
-        df_branch['Avg_Items_per_Receipt_Cashier'].fillna(0).map('{:.1f}'.format) + ' items'
+        df_branch['Avg_Items_per_Receipt_Cashier'].fillna(0).map('{:.1f}'.format) + ' items' +
+        ' • avg qty ' + df_branch['Avg_Qty_per_Scanned_Item'].fillna(0).map('{:.2f}'.format)
     )
 
     fig = px.bar(
@@ -1232,14 +1256,15 @@ def cashiers_performance(df: pd.DataFrame):
         height=max(500, 25 * len(df_branch))
     )
 
-    # Dropdown to switch branches
+    # Dropdown buttons
     buttons = []
     for b in branches:
         dfb = branch_data[b].copy()
         dfb['Label_Text'] = (
             dfb['Avg_Serve_Min'].astype(str) + ' min (' +
             dfb['Customers_Served'].astype(str) + ' customers) — ' +
-            dfb['Avg_Items_per_Receipt_Cashier'].fillna(0).map('{:.1f}'.format) + ' items'
+            dfb['Avg_Items_per_Receipt_Cashier'].fillna(0).map('{:.1f}'.format) + ' items' +
+            ' • avg qty ' + dfb['Avg_Qty_per_Scanned_Item'].fillna(0).map('{:.2f}'.format)
         )
         buttons.append(dict(
             label=b,
@@ -1264,11 +1289,14 @@ def cashiers_performance(df: pd.DataFrame):
             showactive=True
         )]
     )
+
     st.plotly_chart(fig, use_container_width=True)
 
-    # ===== 7) Display Final Table =====
+    # =========================
+    # 6) Display Final Table
+    # =========================
     try:
-        # If you have the helper in your app
+        # If you have a helper that formats tables, use it
         format_and_display(
             store_summary.reset_index(),
             numeric_cols=['Total_Customers', 'Avg_Time_per_Customer_Min', 'Avg_Items_per_Receipt'],
@@ -1277,6 +1305,7 @@ def cashiers_performance(df: pd.DataFrame):
         )
     except Exception:
         st.dataframe(store_summary, use_container_width=True)
+
 
 
 def till_usage(df):
