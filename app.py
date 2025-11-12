@@ -1,3 +1,7 @@
+# =========================
+# DailyDeck — Cinematic Landing (SAFE) + Gate
+# Paste this from line 1 to just before your data sections
+# =========================
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,32 +9,34 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 
-import streamlit as st
+st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 
+# ---------------------------------
+# 🎨 "Let the Data Talk" Landing UI
+# ---------------------------------
 def landing_data_talks():
-    # Theme + animations (red/green)
+    # Theme + animations (red/green) — pure CSS, no iframes/components
     st.markdown("""
     <style>
       .stApp{ background: linear-gradient(135deg,#0FA34B 0%,#14C265 38%,#F04343 100%) fixed; }
-      /* glass shell */
       .glass{
         background: rgba(255,255,255,0.94);
         border:1px solid rgba(255,255,255,.65);
-        border-radius: 22px;
-        box-shadow: 0 24px 70px rgba(0,0,0,.15);
+        border-radius: 24px;
+        box-shadow: 0 26px 70px rgba(0,0,0,.16);
         padding: 28px;
       }
       .title{
-        font-size: 54px; font-weight: 900; margin: 0 0 6px 0;
+        font-size: 56px; font-weight: 900; margin: 0 0 6px 0;
         background: linear-gradient(90deg,#0B2916,#0FA34B);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       }
-      .subtitle{ font-size: 22px; font-weight: 800; color:#0F5132; margin: 2px 0 14px; }
+      .subtitle{ font-size: 24px; font-weight: 800; color:#0F5132; margin: 2px 0 16px; }
 
-      /* pulse divider */
-      .pulse{ height:4px; border-radius:999px;
+      /* animated divider */
+      .pulse{ height:5px; border-radius:999px;
         background: linear-gradient(90deg,#E53935,#43A047,#E53935);
-        background-size: 300% 100%; animation: move 5s linear infinite; opacity:.9; }
+        background-size: 300% 100%; animation: move 5s linear infinite; opacity:.95; }
       @keyframes move{ 0%{background-position:0% 50%} 100%{background-position:100% 50%} }
 
       /* chips */
@@ -38,7 +44,18 @@ def landing_data_talks():
         border-radius:999px; font-weight:700; font-size:12.5px;
         background:#F7FFF9; border:1px solid #DDEFE6; color:#0E4F2B; }
 
-      /* three decision cards */
+      /* animated insights ticker (CSS only) */
+      .ticker{ overflow: hidden; height: 28px; position: relative; margin-top:10px; }
+      .ticker ul{ padding:0; margin:0; list-style:none; position:absolute; width:100%; animation: slide 9s linear infinite; }
+      .ticker li{ height:28px; line-height:28px; color:#0F5132; font-weight:800; }
+      @keyframes slide{
+        0%{ transform: translateY(0); }
+        33%{ transform: translateY(-28px); }
+        66%{ transform: translateY(-56px); }
+        100%{ transform: translateY(0); }
+      }
+
+      /* 3 decision cards */
       .cards{ display:grid; grid-template-columns: repeat(3, minmax(240px,1fr)); gap:16px; }
       .card{
         background: linear-gradient(180deg,#ffffff 0%, #f7fff9 100%);
@@ -53,13 +70,13 @@ def landing_data_talks():
       .pill.g{ background:#E8F7EE; color:#0E6B3A; border:1px solid #CDEED9; }
       .pill.r{ background:#FDEBEC; color:#AA1E23; border:1px solid #F8C8CB; }
 
-      /* image row */
+      /* image grid */
       .imgrow{ display:grid; grid-template-columns:repeat(3,minmax(220px,1fr)); gap:12px; margin-top:14px; }
       .imgbox{ overflow:hidden; border-radius:16px; border:1px solid #EAEFF2; }
       .imgbox img{ width:100%; height:150px; object-fit:cover; transition: transform .4s; }
       .imgbox:hover img{ transform: scale(1.05); }
 
-      /* CTA */
+      /* CTA buttons */
       .cta{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
       .btn{ padding:12px 18px; border-radius:14px; font-weight:900; letter-spacing:.2px; display:inline-block; }
       .primary{ background:#E53935; color:#fff; box-shadow:0 10px 28px rgba(229,57,53,.35); }
@@ -70,8 +87,8 @@ def landing_data_talks():
     </style>
     """, unsafe_allow_html=True)
 
-    # Layout
-    left, right = st.columns([1.05, 1])
+    left, right = st.columns([1.05, 1], vertical_alignment="center")
+
     with left:
         st.markdown('<div class="glass">', unsafe_allow_html=True)
         st.markdown('<div class="title">Let the Data Talk.</div>', unsafe_allow_html=True)
@@ -87,24 +104,33 @@ def landing_data_talks():
         ]
         st.markdown("".join([f'<span class="chip">{c}</span>' for c in chips]), unsafe_allow_html=True)
 
-        st.write("")  # spacer
+        # Animated ticker (CSS only, 3 lines loop)
+        st.markdown("""
+        <div class="ticker">
+          <ul>
+            <li>📈 Sales: Hear the trend — hero SKUs & silent shelves.</li>
+            <li>🛠 Operations: Feel the rhythm — tills, cashiers, shifts.</li>
+            <li>🧠 Insights: Act with confidence — promos & zero-sales wins.</li>
+          </ul>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # Decision cards (Sales / Operations / Insights)
+        # Decision cards
         st.markdown('<div class="cards">', unsafe_allow_html=True)
         st.markdown("""
         <div class="card">
           <h3>📈 Sales — Hear the Trend</h3>
-          <p>See momentum by hour, discover hero SKUs, and flag silent shelves.</p>
+          <p>Momentum by hour, hero SKUs, and price spread flags.</p>
           <div class="kpi">
             <span class="pill g">↑ Best Seller Surge</span>
-            <span class="pill r">⚠ Price Spread</span>
+            <span class="pill r">⚠ Price Anomalies</span>
           </div>
         </div>
         """, unsafe_allow_html=True)
         st.markdown("""
         <div class="card">
           <h3>🛠 Operations — Feel the Rhythm</h3>
-          <p>Till activity, cashier pace, and shift balance — smooth flow = more revenue.</p>
+          <p>Till activity, cashier pace, and shift balance — smooth flow = revenue.</p>
           <div class="kpi">
             <span class="pill g">↑ Till Utilization</span>
             <span class="pill r">⏱ Bottlenecks</span>
@@ -114,7 +140,7 @@ def landing_data_talks():
         st.markdown("""
         <div class="card">
           <h3>🧠 Insights — Act with Confidence</h3>
-          <p>Promo pairings, store league tables, and zero-sales opportunities to capture.</p>
+          <p>Affinity pairs, league tables, and zero-sales opportunities.</p>
           <div class="kpi">
             <span class="pill g">✓ Promo Fit</span>
             <span class="pill r">✕ Missed Demand</span>
@@ -130,14 +156,13 @@ def landing_data_talks():
                     '</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Live-feel placeholders (native)
+        # Native KPI placeholders (keeps the page alive)
         a,b,c = st.columns(3)
         a.metric("🧺 Baskets / hr", "—")
         b.metric("🧾 Avg Items / Receipt", "—")
         c.metric("🌙 Night vs Day", "—")
 
     with right:
-        # Insightful, generic images (Unsplash)
         st.markdown('<div class="glass">', unsafe_allow_html=True)
         st.caption("What your data will surface visually")
         st.markdown('<div class="imgrow">', unsafe_allow_html=True)
@@ -152,6 +177,52 @@ def landing_data_talks():
             unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ---------------------------------
+# 🧠 Gate: show landing before data
+# ---------------------------------
+# 1) Sidebar uploader FIRST (this ensures landing can reference it)
+uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=["csv"])
+
+# 2) If nothing uploaded and no session flag → show landing and stop
+if uploaded is None and not any(k in st.session_state for k in ("df_ready","df")):
+    landing_data_talks()
+    st.stop()
+
+# 3) If a file is uploaded for the first time → read and store
+if uploaded is not None and "df_ready" not in st.session_state and "df" not in st.session_state:
+    try:
+        df = pd.read_csv(uploaded, on_bad_lines="skip", low_memory=False)
+    except Exception as e:
+        st.error(f"Failed to read CSV: {e}")
+        st.stop()
+    st.session_state.df = df
+    st.session_state.df_ready = True
+
+# 4) From here on, your app sees df (loaded once per session)
+df = st.session_state.get("df")
+
+# ---------------------------------
+# ✅ START YOUR REAL APP BELOW
+# (Sales / Operations / Insights, GPT, etc.)
+# ---------------------------------
+st.title("DailyDeck: The Story Behind the Numbers")
+
+# (Optional) tiny confirmation + safe preview
+if df is not None:
+    st.caption("✅ Data loaded.")
+    try:
+        st.dataframe(df.head(30), use_container_width=True)
+    except Exception:
+        df2 = df.copy()
+        obj_cols = [c for c in df2.columns if df2[c].dtype == "object"]
+        for c in obj_cols:
+            df2[c] = df2[c].astype("string")
+        st.dataframe(df2.head(30), use_container_width=True)
+
+# === Your existing sections continue here ===
+# e.g. sales_overview(df), operations_panels(df), insights_panels(df), gpt_analyst(df)
 
 # -----------------------
 # Data Loading & Caching
