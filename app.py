@@ -1,39 +1,3 @@
-# Insert this at the top of main(), before loading data or calling smart_load()
-import streamlit as st
-import streamlit.components.v1 as components
-import os
-
-def show_landing_page_from_file(html_path="UI.html", height=800):
-    # if the file exists, embed it; otherwise show a fallback message
-    if os.path.exists(html_path):
-        with open(html_path, "r", encoding="utf-8") as f:
-            html = f.read()
-        components.html(html, height=height, scrolling=True)
-    else:
-        st.error(f"Landing HTML not found at {html_path}")
-
-def main():
-    # ... existing code above ...
-    # Use session state so user can click "Enter App" to continue
-    if 'landing_shown' not in st.session_state:
-        st.session_state.landing_shown = True
-
-    if st.session_state.landing_shown:
-        # show the static HTML landing page (UI.html should live next to this script)
-        show_landing_page_from_file("UI.html", height=760)
-
-        # show a simple Streamlit "Enter" CTA under the embedded page
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("Enter DailyDeck →"):
-                st.session_state.landing_shown = False
-                st.experimental_rerun()  # reload the app to render the real UI
-        # stop here while showing the landing page
-        st.stop()
-
-    # existing app resumes here (smart_load, data cleaning, sidebar subsections, etc.)
-    st.title("DailyDeck: The Story Behind the Numbers")
-    # ... remainder of your existing main() body ...
 import streamlit as st
 import pandas as pd
 import numpy as np
