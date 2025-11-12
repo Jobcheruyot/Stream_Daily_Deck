@@ -3,168 +3,277 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import timedelta
+from datetime import datetime
 
-st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
-# Add the following at the very top of your Streamlit script, AFTER st.set_page_config
+# Landing page / overview that plugs into the larger app.
+# Usage: call show_landing(df) after you have prepared `df = clean_and_derive(raw_df)`
+# If df is None the page will show placeholder / sample visuals.
 
-# =========================
-# High-Contrast Landing (pre-data only) + Bigger Fonts + Sidebar Upload Hint
-# =========================
-import streamlit as st
+RED = "#d62728"
+GREEN = "#2ca02c"
+ACCENT_BG = "linear-gradient(90deg, #f8fbf8 0%, #fef6f6 100%)"
 
-def _sd_theme():
-    st.markdown("""
-    <style>
-      :root{ --g:#0FA34B; --r:#E53935; --ink:#0b1f10; }
+st.set_page_config(layout="wide")
 
-      /* Global font size boost for desktop */
-      html, body, .stApp { font-size: 17px; }
+def _safe_sum(df, col):
+    try:
+        return float(pd.to_numeric(df.get(col, pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
+    except Exception:
+        return 0.0
 
-      /* Background (soft, not overpowering) */
-      .stApp{
-        background:
-          radial-gradient(1100px 520px at 10% 10%, #eefdf3 0%, #f8fffb 45%, transparent 65%) no-repeat,
-          radial-gradient(900px 520px at 95% 8%,  #fff1f1 0%, #fff7f7 45%, transparent 70%) no-repeat,
-          linear-gradient(120deg, rgba(15,163,75,.08), rgba(229,57,53,.08));
-        background-attachment: fixed;
-      }
+def _safe_unique_count(df, col):
+    try:
+        return int(df[col].nunique())
+    except Exception:
+        return 0
 
-      /* Sidebar: keep uploader obvious */
-      [data-testid="stSidebar"]{
-        background: linear-gradient(180deg, rgba(229,57,53,.10) 0%, rgba(255,255,255,.96) 60%, #fff 100%);
-        border-right: 1px solid rgba(229,57,53,.18);
-      }
-      [data-testid="stSidebar"] .stFileUploader{
-        border: 2px dashed rgba(229,57,53,.45);
-        border-radius: 12px; padding: 12px; background: rgba(255,255,255,.88);
-      }
+def _sparkline_fig(series, color):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=series.index,
+        y=series.values,
+        mode='lines',
+        line=dict(color=color, width=2),
+        fill='tozeroy',
+        hoverinfo='y+x'
+    ))
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=90,
+        xaxis=dict(showgrid=False, visible=False),
+        yaxis=dict(showgrid=False, visible=False)
+    )
+    return fig
 
-      /* Floating hint pointing to the sidebar (desktop only) */
-      @media (min-width: 1100px){
-        .sb-hint{
-          position: fixed; left: 8px; top: 120px; z-index: 999;
-          background: #0FA34B; color: #fff; font-weight: 800;
-          padding: 6px 10px; border-radius: 10px;
-          box-shadow: 0 10px 24px rgba(15,163,75,.35);
-          animation: pop 1.2s ease-in-out infinite alternate;
-        }
-        .sb-hint:after{
-          content:""; position:absolute; right:-10px; top: 12px;
-          border-width: 8px; border-style: solid;
-          border-color: transparent transparent transparent #0FA34B;
-        }
-        @keyframes pop { from{ transform: translateY(-2px);} to{ transform: translateY(2px);} }
-      }
-
-      /* Content width + breathing room (no fullscreen feel) */
-      .sd-wrap{ max-width: 1200px; margin: 8px auto 18px; }
-
-      /* Hero */
-      .sd-hero{
-        margin: 4px auto 12px; padding: 22px 22px 16px;
-        border-radius: 18px; background: rgba(255,255,255,.95);
-        border: 1px solid #eef3ee; box-shadow: 0 14px 36px rgba(0,0,0,.06);
-      }
-      .sd-title{
-        font-size: 64px; line-height: 1.02; font-weight: 900; margin: 0 0 6px 0;
-        background: linear-gradient(90deg, var(--g), var(--r));
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      }
-      .sd-sub{ font-size: 22px; font-weight: 900; color:#0f5132; margin: 0 0 10px; }
-
-      /* Chips */
-      .sd-chips{ margin-top: 6px; }
-      .sd-chip{ display:inline-block; padding:8px 12px; margin:4px; border-radius:999px; font-weight:900; font-size:13px; }
-      .sd-g{ background:#E8F7EE; color:#0E6B3A; border:1px solid #CDEED9; }
-      .sd-r{ background:#FDEBEC; color:#AA1E23; border:1px solid #F8C8CB; }
-
-      /* 3-panel grid */
-      .sd-grid{ display:grid; gap:18px; margin: 14px 0 0; grid-template-columns:repeat(3,minmax(280px,1fr)); }
-      @media (max-width:1100px){ .sd-grid{ grid-template-columns:1fr 1fr; } }
-      @media (max-width:760px){  .sd-grid{ grid-template-columns:1fr; } }
-
-      .sd-card{
-        background: rgba(255,255,255,.97);
-        border: 1px solid #eef3ee; border-radius: 16px; padding: 16px 16px 12px;
-        box-shadow: 0 12px 30px rgba(0,0,0,.05);
-      }
-      .sd-card h3{ margin: 0 0 8px; color: var(--ink); font-weight: 900; font-size: 20px; }
-      .sd-card p{  margin: 4px 0 8px; color:#255b3e; font-size:14.5px; }
-
-      /* Bigger metrics */
-      [data-testid="stMetricValue"]{ color: var(--ink); font-size: 28px; }
-      [data-testid="stMetricLabel"]{ color:#356b4a; font-weight:800; font-size: 13.5px; }
-
-      /* Keep reasonable page padding */
-      .block-container{ padding-top: .9rem; padding-bottom: 1rem; }
-    </style>
-    """, unsafe_allow_html=True)
-
-def _sd_landing():
-    # Desktop hint near the sidebar uploader
-    st.markdown('<div class="sb-hint">⬆ Upload CSV here</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="sd-wrap">', unsafe_allow_html=True)
-    st.markdown('<div class="sd-hero">', unsafe_allow_html=True)
-    st.markdown('<div class="sd-title">DailyDeck</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sd-sub">Sales · Operations · Insights — Make Smart Decisions.</div>', unsafe_allow_html=True)
-    st.caption("Use the sidebar uploader on the left. This landing disappears automatically once data loads.")
+def _kpi_card(title, value, delta=None, icon=None, color="#111"):
+    # Simple card using markdown + inline styling
+    delta_text = ""
+    if delta is not None:
+        arrow = "▲" if delta >= 0 else "▼"
+        col = GREEN if delta >= 0 else RED
+        delta_text = f"<span style='color:{col}; font-weight:600;'>{arrow} {abs(delta):.1f}%</span>"
+    icon_html = f"<div style='font-size:36px;line-height:36px'>{icon}</div>" if icon else ""
     st.markdown(
-        '<div class="sd-chips">'
-        '<span class="sd-chip sd-g">✔ Best Sellers</span>'
-        '<span class="sd-chip sd-g">↑ Till Utilization</span>'
-        '<span class="sd-chip sd-r">⚠ Price Spread</span>'
-        '<span class="sd-chip sd-r">⏱ Bottlenecks</span>'
-        '<span class="sd-chip sd-g">✓ Promo Fit</span>'
-        '</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)  # /hero
+        f"""
+        <div style="
+            background: #ffffff;
+            padding:14px;
+            border-radius:8px;
+            box-shadow:0 4px 12px rgba(0,0,0,0.06);
+            height:110px;
+            display:flex;
+            align-items:center;
+            gap:12px;
+        ">
+            {icon_html}
+            <div>
+                <div style="font-size:13px;color:#666;">{title}</div>
+                <div style="font-size:22px;color:{color};font-weight:700;margin-top:6px;">{value}</div>
+                <div style="margin-top:6px;">{delta_text}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-    st.markdown('<div class="sd-grid">', unsafe_allow_html=True)
-    # Sales
-    with st.container():
-        st.markdown('<div class="sd-card">', unsafe_allow_html=True)
-        st.markdown("### 📈 Sales — Hear the Trend")
-        st.markdown("Momentum by hour, hero SKUs, and signals that reveal growth or hidden loss.")
-        c1, c2 = st.columns(2)
-        c1.metric("Revenue Today", "—")
-        c2.metric("Top SKU", "—")
-        st.markdown('</div>', unsafe_allow_html=True)
+def show_landing(df=None):
+    st.markdown(
+        f"""
+        <div style="
+            padding:22px;
+            border-radius:10px;
+            background:{ACCENT_BG};
+            margin-bottom:18px;
+        ">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <h1 style="margin:0; padding:0;">DailyDeck — Snapshot</h1>
+                    <div style="color:#444; margin-top:6px;">
+                        A high-level preview of what's ahead: Sales, Operations and Insights.
+                    </div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:13px;color:#666">As of</div>
+                    <div style="font-weight:700;">{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-    # Operations
-    with st.container():
-        st.markdown('<div class="sd-card">', unsafe_allow_html=True)
-        st.markdown("### 🛠 Operations — Feel the Rhythm")
-        st.markdown("Till activity, cashier pace, and shift balance — smoother flow, stronger sales.")
-        c1, c2 = st.columns(2)
-        c1.metric("Active Tills", "—")
-        c2.metric("Avg Items/Receipt", "—")
-        st.markdown('</div>', unsafe_allow_html=True)
+    # Create three thematic columns
+    col_sales, col_ops, col_insights = st.columns([1.1, 1, 1])
 
-    # Insights
-    with st.container():
-        st.markdown('<div class="sd-card">', unsafe_allow_html=True)
-        st.markdown("### 🧠 Insights — Act with Confidence")
-        st.markdown("Affinity pairs, zero-sales gaps, and promo-ready product groups.")
-        c1, c2 = st.columns(2)
-        c1.metric("Affinity Wins", "—")
-        c2.metric("Zero-Sales Flags", "—")
-        st.markdown('</div>', unsafe_allow_html=True)
+    # SALES snapshot
+    with col_sales:
+        st.markdown("<h3 style='margin-bottom:6px;'>🛒 Sales</h3>", unsafe_allow_html=True)
+        if df is None or df.empty:
+            total_sales = 0.0
+            daily_series = pd.Series([0])
+            sales_growth = 0.0
+            top_channel = "N/A"
+        else:
+            total_sales = _safe_sum(df, "NET_SALES")
+            # sales by date sparkline
+            if "TRN_DATE" in df.columns:
+                s = (
+                    df.groupby(df["TRN_DATE"].dt.date)["NET_SALES"]
+                      .sum().sort_index()
+                )
+                # smooth to last 14 days if available
+                daily_series = s.rolling(1).sum().tail(30)
+                if len(daily_series) < 2:
+                    daily_series = s
+            else:
+                daily_series = pd.Series([0])
+            # simple growth vs prior period: last day vs previous day
+            try:
+                if len(daily_series) >= 2:
+                    last = float(daily_series.iloc[-1])
+                    prev = float(daily_series.iloc[-2]) if len(daily_series) >= 2 else 0.0
+                    sales_growth = (last - prev) / (prev if prev != 0 else 1) * 100
+                else:
+                    sales_growth = 0.0
+            except Exception:
+                sales_growth = 0.0
 
-    st.markdown('</div>', unsafe_allow_html=True)  # /grid
-    st.markdown('</div>', unsafe_allow_html=True)  # /wrap
+            # top sales channel
+            try:
+                top_channel = df.groupby("SALES_CHANNEL_L1", as_index=False)["NET_SALES"].sum().sort_values(
+                    "NET_SALES", ascending=False
+                ).iloc[0]["SALES_CHANNEL_L1"]
+            except Exception:
+                top_channel = "N/A"
 
-def show_landing_until_df(df_key: str = "df"):
-    """Show themed landing only if df missing/empty, then stop so main reports render after upload."""
-    _sd_theme()
-    _df = st.session_state.get(df_key)
-    if _df is None or (hasattr(_df, "empty") and _df.empty):
-        _sd_landing()
-        st.stop()
+        # KPI
+        _kpi_card("Total Net Sales (KSh)", f"{total_sales:,.0f}", delta=sales_growth, icon="💰", color=RED)
 
-# ---- Call once at the very top of your main page ----
-show_landing_until_df("df")
+        # mini sparkline
+        st.markdown("<div style='margin-top:8px;'>Sales trend (recent)</div>", unsafe_allow_html=True)
+        fig_spark = _sparkline_fig(daily_series if not daily_series.empty else pd.Series([0]), RED)
+        st.plotly_chart(fig_spark, use_container_width=True)
 
+        st.markdown(f"<div style='margin-top:6px;color:#444'><b>Top Channel:</b> {top_channel}</div>", unsafe_allow_html=True)
+
+        if st.button("Go to Sales"):
+            st.session_state['section'] = "SALES"
+
+    # OPERATIONS snapshot
+    with col_ops:
+        st.markdown("<h3 style='margin-bottom:6px;'>⚙️ Operations</h3>", unsafe_allow_html=True)
+
+        if df is None or df.empty:
+            peak_tills = 0
+            avg_customers_per_till = 0
+            top_store_till = "N/A"
+        else:
+            try:
+                # compute per-store max active tills if TIME_ONLY and Till_Code available
+                if "Till_Code" not in df.columns and all(c in df.columns for c in ["TILL", "STORE_CODE"]):
+                    df["Till_Code"] = df["TILL"].astype(str) + "-" + df["STORE_CODE"].astype(str)
+                if "TIME_ONLY" not in df.columns and "TRN_DATE" in df.columns:
+                    df["TIME_ONLY"] = df["TRN_DATE"].dt.floor("30min").dt.time
+                till_counts = (
+                    df.groupby(["STORE_NAME", "TIME_ONLY"])["Till_Code"].nunique().groupby(level=0).max()
+                )
+                peak_tills = int(till_counts.max()) if not till_counts.empty else 0
+                # avg customers per till (approx): unique receipts / unique tills overall
+                receipts = df["CUST_CODE"].nunique() if "CUST_CODE" in df.columns else 0
+                tills = df["Till_Code"].nunique() if "Till_Code" in df.columns else 1
+                avg_customers_per_till = receipts / (tills if tills > 0 else 1)
+                top_store_till = till_counts.idxmax() if not till_counts.empty else "N/A"
+            except Exception:
+                peak_tills = 0
+                avg_customers_per_till = 0
+                top_store_till = "N/A"
+
+        _kpi_card("Peak Active Tills (store)", f"{peak_tills}", delta=None, icon="🧾", color=GREEN)
+        st.markdown(f"<div style='margin-top:8px;'>Avg customers / till: <b>{avg_customers_per_till:.1f}</b></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='margin-top:6px;color:#444'>Top store (by peak tills): <b>{top_store_till}</b></div>", unsafe_allow_html=True)
+
+        # Visual: small bar of top 5 stores by receipts
+        if df is not None and not df.empty and "STORE_NAME" in df.columns and "NET_SALES" in df.columns:
+            try:
+                top_stores = df.groupby("STORE_NAME", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(5)
+                fig2 = px.bar(top_stores[::-1], x="NET_SALES", y="STORE_NAME", orientation="h", color_discrete_sequence=[GREEN])
+                fig2.update_layout(margin=dict(l=4, r=4, t=20, b=4), height=200, showlegend=False)
+                st.plotly_chart(fig2, use_container_width=True)
+            except Exception:
+                pass
+
+        if st.button("Go to Operations"):
+            st.session_state['section'] = "OPERATIONS"
+
+    # INSIGHTS snapshot
+    with col_insights:
+        st.markdown("<h3 style='margin-bottom:6px;'>🔎 Insights</h3>", unsafe_allow_html=True)
+        if df is None or df.empty:
+            multi_price_sku_days = 0
+            loyalty_customers = 0
+            top_category = "N/A"
+        else:
+            try:
+                # Multi-priced SKU days (rough): COUNT of (STORE,DATE,ITEM) with >1 distinct SP_PRE_VAT
+                d = df.copy()
+                if "TRN_DATE" in d.columns:
+                    d["DATE"] = d["TRN_DATE"].dt.date
+                if "SP_PRE_VAT" in d.columns and "ITEM_CODE" in d.columns and "DATE" in d.columns:
+                    grp = d.groupby(["STORE_NAME", "DATE", "ITEM_CODE"], as_index=False)["SP_PRE_VAT"].nunique()
+                    multi_price_sku_days = int((grp["SP_PRE_VAT"] > 1).sum())
+                else:
+                    multi_price_sku_days = 0
+            except Exception:
+                multi_price_sku_days = 0
+            try:
+                if "LOYALTY_CUSTOMER_CODE" in df.columns:
+                    loyalty_customers = int(df["LOYALTY_CUSTOMER_CODE"].replace({"nan": "", "NaN": ""}).astype(str).str.strip().astype(bool).sum())
+                else:
+                    loyalty_customers = 0
+            except Exception:
+                loyalty_customers = 0
+            try:
+                top_category = df.groupby("CATEGORY", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).iloc[0]["CATEGORY"]
+            except Exception:
+                top_category = "N/A"
+
+        _kpi_card("Multi-priced SKU days", f"{multi_price_sku_days}", delta=None, icon="⚠️", color="#6a2c2c")
+        st.markdown(f"<div style='margin-top:8px;color:#444'>Loyalty contacts today: <b>{loyalty_customers}</b></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='margin-top:6px;color:#444'>Top category (net sales): <b>{top_category}</b></div>", unsafe_allow_html=True)
+
+        # Visual: donut of category share (top 5)
+        if df is not None and not df.empty and "CATEGORY" in df.columns and "NET_SALES" in df.columns:
+            try:
+                cat = df.groupby("CATEGORY", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(6)
+                others = max(0, _safe_sum(df, "NET_SALES") - cat["NET_SALES"].sum())
+                if others > 0:
+                    cat = pd.concat([cat, pd.DataFrame([{"CATEGORY": "Others", "NET_SALES": others}])], ignore_index=True)
+                fig3 = px.pie(cat, names="CATEGORY", values="NET_SALES", hole=0.6,
+                              color_discrete_sequence=[RED, GREEN, "#7f7f7f", "#ff7f0e", "#9467bd", "#8c564b"])
+                fig3.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=230, showlegend=True)
+                st.plotly_chart(fig3, use_container_width=True)
+            except Exception:
+                pass
+
+        if st.button("Go to Insights"):
+            st.session_state['section'] = "INSIGHTS"
+
+    # Footer quick actions / legend
+    st.markdown(
+        """
+        <div style="display:flex; gap:10px; margin-top:16px;">
+            <div style="padding:10px 14px; border-radius:8px; background:rgba(44,160,44,0.06); color:#2ca02c;">● Green = Positive / Healthy</div>
+            <div style="padding:10px 14px; border-radius:8px; background:rgba(214,39,40,0.06); color:#d62728;">● Red = Attention / Degraded</div>
+            <div style="padding:10px 14px; border-radius:8px; background:#fff; color:#444;">Click cards to jump to their sections</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+if __name__ == "__main__":
+    # If run standalone, show sample placeholders
+    st.title("Landing — Preview")
+    show_landing(df=None)
 
 # -----------------------
 # Data Loading & Caching
