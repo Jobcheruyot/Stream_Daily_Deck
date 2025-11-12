@@ -1,7 +1,6 @@
-# =========================
-# DailyDeck — Cinematic Landing (SAFE) + Gate
-# Paste this from line 1 to just before your data sections
-# =========================
+# ===============================================
+# DailyDeck — Smart Decisions Dashboard (Streamlit)
+# ===============================================
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,11 +8,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 
-# ----------------------------
-# 🎨 Polished Cards + Sidebar
-# ----------------------------
-import streamlit as st
+# Streamlit page setup
+st.set_page_config(layout="wide", page_title="DailyDeck — Let the Data Talk")
 
+# =========================================================
+# 🎨 Theme & Styles: Sidebar + Insight Cards
+# =========================================================
 def apply_deck_theme():
     st.markdown("""
     <style>
@@ -25,45 +25,42 @@ def apply_deck_theme():
         --card-bg:#ffffff;
       }
 
-      /* Sidebar: red→white blend with glassy panel */
+      /* Sidebar: red→white blend with glassy overlay */
       [data-testid="stSidebar"]{
-        background: linear-gradient(180deg, rgba(229,57,53,0.10) 0%, rgba(255,255,255,0.85) 60%, #ffffff 100%);
-        backdrop-filter: blur(6px);
-        border-right: 1px solid rgba(229,57,53,0.18);
+        background: linear-gradient(180deg, rgba(229,57,53,0.12) 0%, rgba(255,255,255,0.92) 60%, #ffffff 100%);
+        backdrop-filter: blur(8px);
+        border-right: 1px solid rgba(229,57,53,0.22);
       }
-      /* Sidebar uploader tidy */
       [data-testid="stSidebar"] .stFileUploader{
         border: 1px dashed rgba(229,57,53,0.35);
         border-radius: 14px;
         padding: 10px 12px;
-        background: rgba(255,255,255,0.55);
+        background: rgba(255,255,255,0.6);
+        transition: all 0.25s ease;
       }
       [data-testid="stSidebar"] .stFileUploader:hover{
         border-color: var(--brand-red);
-        background: rgba(255,255,255,0.8);
+        background: rgba(255,255,255,0.9);
       }
 
       /* Card grid */
       .deck-cards{
-        display:grid; gap:18px;
-      }
-      @media (min-width: 900px){
-        .deck-cards{ grid-template-columns: 1fr; }
+        display:grid; gap:22px;
       }
 
-      /* Premium card with gradient edge + soft shadow */
+      /* Insight card style */
       .deck-card{
         position:relative;
-        border-radius: 22px;
-        padding: 20px 18px 16px;
-        background: linear-gradient(180deg,#ffffff 0%, #f7fff9 100%);
-        box-shadow: 0 18px 48px rgba(0,0,0,.10);
+        border-radius: 24px;
+        padding: 24px 20px 18px;
+        background: linear-gradient(180deg,#ffffff 0%, #f8fff9 100%);
+        box-shadow: 0 20px 48px rgba(0,0,0,.08);
         border: 1px solid #e8f3ec;
         overflow:hidden;
       }
       .deck-card:before{
         content:"";
-        position:absolute; inset:0; border-radius:22px; padding:1px;
+        position:absolute; inset:0; border-radius:24px; padding:1px;
         background: linear-gradient(90deg, rgba(15,163,75,.55), rgba(229,57,53,.45));
         -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
         -webkit-mask-composite: xor; mask-composite: exclude;
@@ -71,26 +68,40 @@ def apply_deck_theme():
       }
 
       .deck-title{
-        font-weight: 800; font-size: 20px; color: var(--ink); display:flex; gap:8px; align-items:center;
+        font-weight: 800; font-size: 21px; color: var(--ink);
+        display:flex; gap:8px; align-items:center;
       }
       .deck-emoji{
-        width:32px; height:32px; border-radius:10px; display:grid; place-items:center;
+        width:34px; height:34px; border-radius:10px; display:grid; place-items:center;
         background: radial-gradient(120% 120% at 30% 20%, rgba(15,163,75,.18), rgba(229,57,53,.14));
         border: 1px solid rgba(0,0,0,.06);
       }
-      .deck-desc{ color:#356b4a; margin:6px 0 10px; }
+      .deck-desc{ color:#356b4a; margin:6px 0 12px; font-size:15px; }
 
       /* Badges */
       .badges{ display:flex; gap:10px; flex-wrap:wrap; }
-      .badge{ font-weight:800; font-size:12.5px; padding:8px 12px; border-radius:999px; display:inline-flex; gap:6px; align-items:center; }
+      .badge{ font-weight:800; font-size:13px; padding:8px 12px; border-radius:999px; display:inline-flex; gap:6px; align-items:center; }
       .good{ background:#E8F7EE; color:#0E6B3A; border:1px solid #CDEED9; }
       .warn{ background:#FDEBEC; color:#AA1E23; border:1px solid #F8C8CB; }
 
-      /* Subtle card separator effect (stacked look) */
-      .deck-card + .deck-card{ margin-top:6px; }
+      /* Divider line between stacked cards */
+      .deck-card + .deck-card{ margin-top:8px; }
+
+      /* Main header styling */
+      .main-title{
+        font-size: 48px; font-weight:900; margin-bottom:4px;
+        background: linear-gradient(90deg, var(--brand-green), var(--brand-red));
+        -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+      }
+      .subhead{
+        font-size:18px; font-weight:600; color:#0f5132; margin-bottom:18px;
+      }
     </style>
     """, unsafe_allow_html=True)
 
+# =========================================================
+# 💡 Insight Cards Renderer
+# =========================================================
 def render_decision_cards():
     apply_deck_theme()
     st.markdown("""
@@ -101,7 +112,9 @@ def render_decision_cards():
           <span class="deck-emoji">📈</span>
           <span>Sales — Hear the Trend</span>
         </div>
-        <div class="deck-desc">Momentum by hour, hero SKUs, and price-spread flags.</div>
+        <div class="deck-desc">
+          Momentum by hour, hero SKUs, and price-spread patterns that reveal growth or hidden loss.
+        </div>
         <div class="badges">
           <span class="badge good">✔ Best Seller Surge</span>
           <span class="badge warn">⚠ Price Anomalies</span>
@@ -113,7 +126,9 @@ def render_decision_cards():
           <span class="deck-emoji">🛠️</span>
           <span>Operations — Feel the Rhythm</span>
         </div>
-        <div class="deck-desc">Till activity, cashier pace, and shift balance — smooth flow = revenue.</div>
+        <div class="deck-desc">
+          Till activity, cashier pace, and shift balance — smoother operations mean better sales flow.
+        </div>
         <div class="badges">
           <span class="badge good">↑ Till Utilization</span>
           <span class="badge warn">⏱ Bottlenecks</span>
@@ -125,7 +140,9 @@ def render_decision_cards():
           <span class="deck-emoji">🧠</span>
           <span>Insights — Act with Confidence</span>
         </div>
-        <div class="deck-desc">Affinity pairs, league tables, and zero-sales opportunities.</div>
+        <div class="deck-desc">
+          Affinity pairs, category gaps, and store league tables that uncover where to act next.
+        </div>
         <div class="badges">
           <span class="badge good">✓ Promo Fit</span>
           <span class="badge warn">✕ Missed Demand</span>
@@ -134,6 +151,42 @@ def render_decision_cards():
 
     </div>
     """, unsafe_allow_html=True)
+
+# =========================================================
+# 📂 Data Loader & Gate
+# =========================================================
+uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=["csv"])
+
+# If nothing uploaded, show themed landing (cards act as intro)
+if uploaded is None and "df_ready" not in st.session_state:
+    st.markdown("<div class='main-title'>Let the Data Talk.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='subhead'>Sales · Operations · Insights — Make Smart Decisions.</div>", unsafe_allow_html=True)
+    render_decision_cards()
+    st.stop()
+
+# When data is uploaded for first time
+if uploaded is not None and "df_ready" not in st.session_state:
+    try:
+        df = pd.read_csv(uploaded, on_bad_lines="skip", low_memory=False)
+    except Exception as e:
+        st.error(f"⚠️ Failed to load CSV: {e}")
+        st.stop()
+    st.session_state.df = df
+    st.session_state.df_ready = True
+
+df = st.session_state.get("df")
+
+# =========================================================
+# 📊 Main App Section (after data loads)
+# =========================================================
+st.markdown("<div class='main-title'>DailyDeck</div>", unsafe_allow_html=True)
+st.markdown("<div class='subhead'>The Story Behind the Numbers</div>", unsafe_allow_html=True)
+
+if df is not None:
+    st.success("✅ Data loaded successfully. You're ready to explore Sales, Operations, and Insights.")
+    st.dataframe(df.head(20), use_container_width=True)
+else:
+    st.info("Upload a CSV file from the sidebar to begin.")
 
 
 # -----------------------
