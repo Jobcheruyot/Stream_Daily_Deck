@@ -14,7 +14,7 @@ Integration notes:
 """
 
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -237,7 +237,7 @@ def show_landing():
                 </div>
                 <div style="text-align:right; min-width:160px;">
                     <div style="font-size:13px;color:#666">As of</div>
-                    <div style="font-weight:700;">{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</div>
+                    <div style="font-weight:700;">{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</div>
                 </div>
             </div>
         </div>
@@ -258,7 +258,7 @@ def show_landing():
 
         if uploaded is not None:
             raw_bytes = uploaded.getvalue()
-            with st.spinner("Parsing uploaded CSV..."):
+            with st.spinner("Parsing uploaded CSV..."):  
                 ok, err, raw_df, df = _process_uploaded_file_bytes(raw_bytes)
             if ok:
                 st.success("CSV uploaded and parsed — data available for the session.")
@@ -416,10 +416,6 @@ def show_landing():
         unsafe_allow_html=True
     )
 
-# If run directly, show preview
-if __name__ == "__main__":
-    st.title("Landing — Preview with in-page upload & top nav")
-    show_landing()
 # -----------------------
 # Data Loading & Caching
 # -----------------------
@@ -600,7 +596,7 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None,
                     lambda v: f"{float(v):,.2f}" if pd.notna(v) and str(v) != '' else ''
                 )
 
-    st.dataframe(appended, use_container_width=True)
+    st.dataframe(appended, width="stretch")
 
 # -----------------------
 # Helper plotting utils
@@ -654,7 +650,7 @@ def sales_global_overview(df):
         hole=0.65,
         value_is_millions=True
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     format_and_display(
         g[['SALES_CHANNEL_L1', 'NET_SALES']],
         numeric_cols=['NET_SALES'],
@@ -677,7 +673,7 @@ def sales_by_channel_l2(df):
         hole=0.65,
         value_is_millions=True
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     format_and_display(
         g[['SALES_CHANNEL_L2', 'NET_SALES']],
         numeric_cols=['NET_SALES'],
@@ -695,7 +691,7 @@ def sales_by_shift(df):
     labels = [f"{row['SHIFT']} ({row['PCT']:.1f}%)" for _, row in g.iterrows()]
     fig = go.Figure(data=[go.Pie(labels=labels, values=g['NET_SALES'], hole=0.65)])
     fig.update_layout(title="<b>Global Net Sales Distribution by SHIFT</b>")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     format_and_display(
         g[['SHIFT', 'NET_SALES', 'PCT']],
         numeric_cols=['NET_SALES', 'PCT'],
@@ -742,7 +738,7 @@ def night_vs_day_ratio(df):
         xaxis_title="% of Store Sales",
         height=700
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     table = pivot_sorted.reset_index().rename(columns={'Night': 'Night_%', 'Day': 'Day_%'})
     format_and_display(
         table,
@@ -766,7 +762,7 @@ def global_day_vs_night(df):
     labels = [f"{r.Shift_Bucket} ({r.PCT:.1f}%)" for _, r in agg.iterrows()]
     fig = go.Figure(go.Pie(labels=labels, values=agg['NET_SALES'], hole=0.65))
     fig.update_layout(title="<b>Global Day vs Night Sales — Only Stores with NIGHT Shifts</b>")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     format_and_display(
         agg,
         numeric_cols=['NET_SALES', 'PCT'],
@@ -839,7 +835,7 @@ def second_highest_channel_share(df):
         annotations=annotations,
         yaxis=dict(autorange='reversed')
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     format_and_display(
         second_sorted[['STORE_NAME', 'SECOND_CHANNEL', 'SECOND_PCT']],
         numeric_cols=['SECOND_PCT'],
@@ -905,7 +901,7 @@ def bottom_30_2nd_highest(df):
         annotations=annotations,
         yaxis=dict(autorange='reversed')
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     format_and_display(
         bottom_30,
         numeric_cols=['SECOND_PCT', 'TOP_PCT'],
@@ -1069,7 +1065,7 @@ def customer_traffic_storewise(df):
         coloraxis_colorbar=dict(title="Receipt Count")
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     totals_df = totals.reset_index()
     totals_df.columns = ['STORE_NAME', 'Total_Receipts']
@@ -1188,7 +1184,7 @@ def active_tills_during_day(df):
         coloraxis_colorbar=dict(title="Unique Tills")
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Summary table
     summary = max_vals.reset_index()
@@ -1328,7 +1324,7 @@ def avg_customers_per_till(df):
         coloraxis_colorbar=dict(title="Customers / Till")
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     pivot_totals = pd.DataFrame({
         'STORE_NAME': ratio_matrix.index,
@@ -1494,7 +1490,7 @@ def store_customer_traffic_storewise(df):
         )]
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 def customer_traffic_departmentwise(df):
     # Same engine as Store Customer Traffic Storewise
@@ -1674,7 +1670,7 @@ def cashiers_performance(df: pd.DataFrame):
             showactive=True
         )]
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # ===== 7) Display Final Table =====
     try:
@@ -1686,7 +1682,7 @@ def cashiers_performance(df: pd.DataFrame):
             total_label='TOTAL'
         )
     except Exception:
-        st.dataframe(store_summary, use_container_width=True)
+        st.dataframe(store_summary, width="stretch")
 
 
 def till_usage(df):
@@ -1719,7 +1715,7 @@ def till_usage(df):
         text_auto=True
     )
     fig.update_xaxes(side='top')
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     totals = pivot.sum(axis=1).reset_index()
     totals.columns = ['Till_Code', 'Total_Receipts']
     format_and_display(
@@ -1784,7 +1780,7 @@ def tax_compliance(df):
         title=f"Tax Compliance by Till — {branch}",
         height=max(400, 24 * len(pivot.index))
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     store_summary = d.groupby(
         ['STORE_NAME', 'Tax_Compliant'],
         as_index=False
@@ -1921,7 +1917,7 @@ def global_category_overview_sales(df):
         orientation='h',
         title="Top Categories by Net Sales"
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 def global_category_overview_baskets(df):
     st.header("Global Category Overview — Baskets")
@@ -1944,7 +1940,7 @@ def global_category_overview_baskets(df):
         orientation='h',
         title="Top Categories by Baskets"
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 def supplier_contribution(df):
     st.header("Supplier Contribution (Top suppliers by net sales)")
@@ -1967,7 +1963,7 @@ def supplier_contribution(df):
         orientation='h',
         title="Top Suppliers by Net Sales"
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 def category_overview(df):
     st.header("Category Overview")
@@ -2033,7 +2029,7 @@ def branch_comparison(df):
         title=f"Branch Comparison — {a} vs {b}"
     )
     fig.update_traces(textposition='outside')
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.subheader(f"{a} Top Items")
     format_and_display(
         topA,
@@ -2202,7 +2198,7 @@ def product_performance(df):
         final[col] = final[col].map('{:,.0f}'.format)
 
     st.subheader("Store Breakdown")
-    st.dataframe(final, use_container_width=True)
+    st.dataframe(final, width="stretch")
 
     # chart
     chart_df = per_store[['STORE_NAME','Only_Item_Baskets','With_Other_Items']].melt(
@@ -2223,7 +2219,7 @@ def product_performance(df):
         title=f"Stores — Basket Split (%) for {item_code} ({item_name})"
     )
     fig.update_layout(height=max(420, 22*len(chart_df['STORE_NAME'].unique())))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 def global_loyalty_overview(df):
     st.header("Global Loyalty Overview")
@@ -2707,7 +2703,7 @@ def branch_pricing_overview(df):
     with st.expander("Show full receipt details (expand)"):
         st.dataframe(
             receipts_detail,
-            use_container_width=True
+            width="stretch"
         )
 
     try:
