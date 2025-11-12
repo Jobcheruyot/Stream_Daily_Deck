@@ -7,6 +7,19 @@ from datetime import timedelta
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
+st.markdown("""
+<div style="text-align:center; padding:100px 0;">
+  <h1 style="font-size:48px; font-weight:900; color:#0A2647;">📊 DailyDeck</h1>
+  <h2 style="font-weight:500; color:#144272;">The Story Behind the Numbers</h2>
+  <p style="color:#205295; font-size:18px; margin-top:10px;">
+    Unveil hidden trends, decode store patterns, and let your data talk.
+  </p>
+  <div style="margin-top:40px;">
+    <img src="https://cdn.dribbble.com/users/125056/screenshots/17686521/media/13d7de4bb2d3b0a49a33b048a163e4c1.gif" width="300">
+  </div>
+  <p style="margin-top:30px; color:#555;">Upload your daily transactions to begin your journey...</p>
+</div>
+""", unsafe_allow_html=True)
 
 
 
