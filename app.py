@@ -1,20 +1,38 @@
+"""
+Landing page with in-page CSV upload and real navigation buttons.
+
+Paste this file into your Streamlit app and call `show_landing()` from your main script
+(instead of the previous landing helper) or replace your existing landing page with it.
+
+Behavior:
+- File uploader is on the landing page (not the sidebar).
+- When a CSV is uploaded it is parsed and stored in st.session_state['raw_df_bytes'],
+  st.session_state['raw_df'] and st.session_state['df'] (cleaned).
+- If a `clean_and_derive` function exists in the global scope (for example from your main app),
+  it will be used to clean the uploaded raw dataframe. Otherwise a lightweight internal cleaner
+  will be used so the landing page works standalone.
+- "Go to Sales / Operations / Insights" are real buttons that set st.session_state['section']
+  and trigger a rerun so the rest of your app can pick the section up as before.
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from io import BytesIO
 from datetime import datetime
 
-# Landing page / overview that plugs into the larger app.
-# Usage: call show_landing(df) after you have prepared `df = clean_and_derive(raw_df)`
-# If df is None the page will show placeholder / sample visuals.
-
+# Theme colors
 RED = "#d62728"
 GREEN = "#2ca02c"
 ACCENT_BG = "linear-gradient(90deg, #f8fbf8 0%, #fef6f6 100%)"
 
 st.set_page_config(layout="wide")
 
+# -----------------------
+# Helpers
+# -----------------------
 def _safe_sum(df, col):
     try:
         return float(pd.to_numeric(df.get(col, pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
@@ -28,10 +46,12 @@ def _safe_unique_count(df, col):
         return 0
 
 def _sparkline_fig(series, color):
+    x = list(range(len(series))) if getattr(series, "index", None) is None else series.index
+    y = series.values if hasattr(series, "values") else series
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=series.index,
-        y=series.values,
+        x=x,
+        y=y,
         mode='lines',
         line=dict(color=color, width=2),
         fill='tozeroy',
@@ -46,18 +66,21 @@ def _sparkline_fig(series, color):
     return fig
 
 def _kpi_card(title, value, delta=None, icon=None, color="#111"):
-    # Simple card using markdown + inline styling
     delta_text = ""
     if delta is not None:
-        arrow = "▲" if delta >= 0 else "▼"
-        col = GREEN if delta >= 0 else RED
-        delta_text = f"<span style='color:{col}; font-weight:600;'>{arrow} {abs(delta):.1f}%</span>"
-    icon_html = f"<div style='font-size:36px;line-height:36px'>{icon}</div>" if icon else ""
+        try:
+            d = float(delta)
+            arrow = "▲" if d >= 0 else "▼"
+            col = GREEN if d >= 0 else RED
+            delta_text = f"<span style='color:{col}; font-weight:600;'>{arrow} {abs(d):.1f}%</span>"
+        except Exception:
+            delta_text = ""
+    icon_html = f"<div style='font-size:28px;line-height:28px'>{icon}</div>" if icon else ""
     st.markdown(
         f"""
         <div style="
             background: #ffffff;
-            padding:14px;
+            padding:12px;
             border-radius:8px;
             box-shadow:0 4px 12px rgba(0,0,0,0.06);
             height:110px;
@@ -67,8 +90,8 @@ def _kpi_card(title, value, delta=None, icon=None, color="#111"):
         ">
             {icon_html}
             <div>
-                <div style="font-size:13px;color:#666;">{title}</div>
-                <div style="font-size:22px;color:{color};font-weight:700;margin-top:6px;">{value}</div>
+                <div style="font-size:12px;color:#666;">{title}</div>
+                <div style="font-size:20px;color:{color};font-weight:700;margin-top:6px;">{value}</div>
                 <div style="margin-top:6px;">{delta_text}</div>
             </div>
         </div>
@@ -76,7 +99,66 @@ def _kpi_card(title, value, delta=None, icon=None, color="#111"):
         unsafe_allow_html=True
     )
 
-def show_landing(df=None):
+# Minimal internal cleaner (used if clean_and_derive is not provided by the host app)
+def _minimal_clean_and_derive(raw_df: pd.DataFrame) -> pd.DataFrame:
+    d = raw_df.copy()
+    # normalize small set of columns used by landing page visuals
+    for c in ['STORE_NAME','TRN_DATE','NET_SALES','CUST_CODE','TILL','STORE_CODE','SALES_CHANNEL_L1','CATEGORY','SP_PRE_VAT','ITEM_CODE','LOYALTY_CUSTOMER_CODE']:
+        if c in d.columns:
+            if d[c].dtype == object:
+                d[c] = d[c].astype(str).str.strip()
+    if 'TRN_DATE' in d.columns:
+        d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
+        d = d.dropna(subset=['TRN_DATE'])
+    for c in ['NET_SALES','QTY','SP_PRE_VAT','VAT_AMT']:
+        if c in d.columns:
+            d[c] = pd.to_numeric(d[c].astype(str).str.replace(',', '', regex=False), errors='coerce').fillna(0)
+    if 'GROSS_SALES' not in d.columns:
+        d['GROSS_SALES'] = d.get('NET_SALES', 0) + d.get('VAT_AMT', 0)
+    # Till code
+    if 'Till_Code' not in d.columns and all(x in d.columns for x in ['TILL','STORE_CODE']):
+        d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
+    # Shift bucket
+    if 'SHIFT' in d.columns:
+        d['Shift_Bucket'] = np.where(d['SHIFT'].astype(str).str.upper().str.contains('NIGHT', na=False), 'Night', 'Day')
+    return d
+
+# -----------------------
+# Upload / state helpers
+# -----------------------
+def _process_uploaded_file(uploaded_file):
+    try:
+        raw_bytes = uploaded_file.getvalue()
+        raw_df = pd.read_csv(BytesIO(raw_bytes), on_bad_lines='skip', low_memory=False)
+        # if the host app has a clean_and_derive function, use it; otherwise use minimal
+        if 'clean_and_derive' in globals() and callable(globals()['clean_and_derive']):
+            try:
+                df = globals()['clean_and_derive'](raw_df)
+            except Exception:
+                df = _minimal_clean_and_derive(raw_df)
+        else:
+            df = _minimal_clean_and_derive(raw_df)
+
+        # stash in session_state
+        st.session_state['raw_df_bytes'] = raw_bytes
+        st.session_state['raw_df'] = raw_df
+        st.session_state['df'] = df
+        st.session_state['data_uploaded'] = True
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+def _clear_uploaded_data():
+    keys = ['raw_df_bytes','raw_df','df','data_uploaded']
+    for k in keys:
+        if k in st.session_state:
+            del st.session_state[k]
+
+# -----------------------
+# UI: Landing page
+# -----------------------
+def show_landing():
+    # Header card
     st.markdown(
         f"""
         <div style="
@@ -102,12 +184,44 @@ def show_landing(df=None):
         unsafe_allow_html=True
     )
 
-    # Create three thematic columns
+    # Upload area (full-width row above the three columns)
+    st.markdown("<div style='margin-bottom:10px;'><strong>Upload data (CSV) to run the app</strong></div>", unsafe_allow_html=True)
+    col_file_left, col_file_mid, col_file_right = st.columns([1, 2, 1])
+
+    with col_file_mid:
+        uploaded = st.file_uploader(
+            "Drag & drop a DAILY_POS_TRN_ITEMS CSV here or click to browse (max ~1GB).",
+            type=["csv"],
+            help="CSV with transaction rows - once uploaded the page will parse & remember it for this session."
+        )
+
+        if uploaded is not None:
+            with st.spinner("Parsing uploaded CSV..."):
+                ok, err = _process_uploaded_file(uploaded)
+            if ok:
+                st.success("CSV uploaded and parsed — data available for the session.")
+            else:
+                st.error(f"Failed to parse CSV: {err}")
+
+        # Show a small area with current upload status and controls
+        uploaded_status = st.session_state.get('data_uploaded', False)
+        if uploaded_status:
+            df = st.session_state.get('df', None)
+            raw_df = st.session_state.get('raw_df', None)
+            st.markdown("<div style='margin-top:8px; padding:8px; border-radius:8px; background:#f6fff6;'>✅ Data loaded in session.</div>", unsafe_allow_html=True)
+            st.button("Clear uploaded data", on_click=_clear_uploaded_data)
+        else:
+            st.info("No CSV uploaded. Upload here to enable the full app without the sidebar uploader.")
+
+    st.markdown("---")
+
+    # Three columns snapshot
     col_sales, col_ops, col_insights = st.columns([1.1, 1, 1])
 
     # SALES snapshot
     with col_sales:
         st.markdown("<h3 style='margin-bottom:6px;'>🛒 Sales</h3>", unsafe_allow_html=True)
+        df = st.session_state.get('df', None)
         if df is None or df.empty:
             total_sales = 0.0
             daily_series = pd.Series([0])
@@ -115,19 +229,13 @@ def show_landing(df=None):
             top_channel = "N/A"
         else:
             total_sales = _safe_sum(df, "NET_SALES")
-            # sales by date sparkline
             if "TRN_DATE" in df.columns:
-                s = (
-                    df.groupby(df["TRN_DATE"].dt.date)["NET_SALES"]
-                      .sum().sort_index()
-                )
-                # smooth to last 14 days if available
-                daily_series = s.rolling(1).sum().tail(30)
+                s = df.groupby(df["TRN_DATE"].dt.date)["NET_SALES"].sum().sort_index()
+                daily_series = s.tail(30)
                 if len(daily_series) < 2:
                     daily_series = s
             else:
                 daily_series = pd.Series([0])
-            # simple growth vs prior period: last day vs previous day
             try:
                 if len(daily_series) >= 2:
                     last = float(daily_series.iloc[-1])
@@ -137,48 +245,37 @@ def show_landing(df=None):
                     sales_growth = 0.0
             except Exception:
                 sales_growth = 0.0
-
-            # top sales channel
             try:
-                top_channel = df.groupby("SALES_CHANNEL_L1", as_index=False)["NET_SALES"].sum().sort_values(
-                    "NET_SALES", ascending=False
-                ).iloc[0]["SALES_CHANNEL_L1"]
+                top_channel = df.groupby("SALES_CHANNEL_L1", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).iloc[0]["SALES_CHANNEL_L1"]
             except Exception:
                 top_channel = "N/A"
 
-        # KPI
         _kpi_card("Total Net Sales (KSh)", f"{total_sales:,.0f}", delta=sales_growth, icon="💰", color=RED)
-
-        # mini sparkline
         st.markdown("<div style='margin-top:8px;'>Sales trend (recent)</div>", unsafe_allow_html=True)
         fig_spark = _sparkline_fig(daily_series if not daily_series.empty else pd.Series([0]), RED)
         st.plotly_chart(fig_spark, use_container_width=True)
-
         st.markdown(f"<div style='margin-top:6px;color:#444'><b>Top Channel:</b> {top_channel}</div>", unsafe_allow_html=True)
 
         if st.button("Go to Sales"):
             st.session_state['section'] = "SALES"
+            st.experimental_rerun()
 
     # OPERATIONS snapshot
     with col_ops:
         st.markdown("<h3 style='margin-bottom:6px;'>⚙️ Operations</h3>", unsafe_allow_html=True)
-
+        df = st.session_state.get('df', None)
         if df is None or df.empty:
             peak_tills = 0
             avg_customers_per_till = 0
             top_store_till = "N/A"
         else:
             try:
-                # compute per-store max active tills if TIME_ONLY and Till_Code available
-                if "Till_Code" not in df.columns and all(c in df.columns for c in ["TILL", "STORE_CODE"]):
+                if "Till_Code" not in df.columns and all(x in df.columns for x in ["TILL","STORE_CODE"]):
                     df["Till_Code"] = df["TILL"].astype(str) + "-" + df["STORE_CODE"].astype(str)
                 if "TIME_ONLY" not in df.columns and "TRN_DATE" in df.columns:
                     df["TIME_ONLY"] = df["TRN_DATE"].dt.floor("30min").dt.time
-                till_counts = (
-                    df.groupby(["STORE_NAME", "TIME_ONLY"])["Till_Code"].nunique().groupby(level=0).max()
-                )
+                till_counts = df.groupby(["STORE_NAME", "TIME_ONLY"])["Till_Code"].nunique().groupby(level=0).max()
                 peak_tills = int(till_counts.max()) if not till_counts.empty else 0
-                # avg customers per till (approx): unique receipts / unique tills overall
                 receipts = df["CUST_CODE"].nunique() if "CUST_CODE" in df.columns else 0
                 tills = df["Till_Code"].nunique() if "Till_Code" in df.columns else 1
                 avg_customers_per_till = receipts / (tills if tills > 0 else 1)
@@ -192,7 +289,7 @@ def show_landing(df=None):
         st.markdown(f"<div style='margin-top:8px;'>Avg customers / till: <b>{avg_customers_per_till:.1f}</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div style='margin-top:6px;color:#444'>Top store (by peak tills): <b>{top_store_till}</b></div>", unsafe_allow_html=True)
 
-        # Visual: small bar of top 5 stores by receipts
+        # small bar visual (top stores by sales)
         if df is not None and not df.empty and "STORE_NAME" in df.columns and "NET_SALES" in df.columns:
             try:
                 top_stores = df.groupby("STORE_NAME", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(5)
@@ -204,32 +301,30 @@ def show_landing(df=None):
 
         if st.button("Go to Operations"):
             st.session_state['section'] = "OPERATIONS"
+            st.experimental_rerun()
 
     # INSIGHTS snapshot
     with col_insights:
         st.markdown("<h3 style='margin-bottom:6px;'>🔎 Insights</h3>", unsafe_allow_html=True)
+        df = st.session_state.get('df', None)
         if df is None or df.empty:
             multi_price_sku_days = 0
             loyalty_customers = 0
             top_category = "N/A"
         else:
             try:
-                # Multi-priced SKU days (rough): COUNT of (STORE,DATE,ITEM) with >1 distinct SP_PRE_VAT
                 d = df.copy()
                 if "TRN_DATE" in d.columns:
                     d["DATE"] = d["TRN_DATE"].dt.date
                 if "SP_PRE_VAT" in d.columns and "ITEM_CODE" in d.columns and "DATE" in d.columns:
-                    grp = d.groupby(["STORE_NAME", "DATE", "ITEM_CODE"], as_index=False)["SP_PRE_VAT"].nunique()
+                    grp = d.groupby(["STORE_NAME","DATE","ITEM_CODE"], as_index=False)["SP_PRE_VAT"].nunique()
                     multi_price_sku_days = int((grp["SP_PRE_VAT"] > 1).sum())
                 else:
                     multi_price_sku_days = 0
             except Exception:
                 multi_price_sku_days = 0
             try:
-                if "LOYALTY_CUSTOMER_CODE" in df.columns:
-                    loyalty_customers = int(df["LOYALTY_CUSTOMER_CODE"].replace({"nan": "", "NaN": ""}).astype(str).str.strip().astype(bool).sum())
-                else:
-                    loyalty_customers = 0
+                loyalty_customers = int(df["LOYALTY_CUSTOMER_CODE"].replace({"nan": "", "NaN": ""}).astype(str).str.strip().astype(bool).sum()) if "LOYALTY_CUSTOMER_CODE" in df.columns else 0
             except Exception:
                 loyalty_customers = 0
             try:
@@ -241,13 +336,13 @@ def show_landing(df=None):
         st.markdown(f"<div style='margin-top:8px;color:#444'>Loyalty contacts today: <b>{loyalty_customers}</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div style='margin-top:6px;color:#444'>Top category (net sales): <b>{top_category}</b></div>", unsafe_allow_html=True)
 
-        # Visual: donut of category share (top 5)
+        # donut of category share (top 5)
         if df is not None and not df.empty and "CATEGORY" in df.columns and "NET_SALES" in df.columns:
             try:
                 cat = df.groupby("CATEGORY", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(6)
                 others = max(0, _safe_sum(df, "NET_SALES") - cat["NET_SALES"].sum())
                 if others > 0:
-                    cat = pd.concat([cat, pd.DataFrame([{"CATEGORY": "Others", "NET_SALES": others}])], ignore_index=True)
+                    cat = pd.concat([cat, pd.DataFrame([{"CATEGORY":"Others","NET_SALES":others}])], ignore_index=True)
                 fig3 = px.pie(cat, names="CATEGORY", values="NET_SALES", hole=0.6,
                               color_discrete_sequence=[RED, GREEN, "#7f7f7f", "#ff7f0e", "#9467bd", "#8c564b"])
                 fig3.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=230, showlegend=True)
@@ -257,23 +352,24 @@ def show_landing(df=None):
 
         if st.button("Go to Insights"):
             st.session_state['section'] = "INSIGHTS"
+            st.experimental_rerun()
 
-    # Footer quick actions / legend
+    # Footer quick legend
     st.markdown(
         """
         <div style="display:flex; gap:10px; margin-top:16px;">
             <div style="padding:10px 14px; border-radius:8px; background:rgba(44,160,44,0.06); color:#2ca02c;">● Green = Positive / Healthy</div>
             <div style="padding:10px 14px; border-radius:8px; background:rgba(214,39,40,0.06); color:#d62728;">● Red = Attention / Degraded</div>
-            <div style="padding:10px 14px; border-radius:8px; background:#fff; color:#444;">Click cards to jump to their sections</div>
+            <div style="padding:10px 14px; border-radius:8px; background:#fff; color:#444;">Use the buttons above to jump to sections</div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
+# Allow running the landing standalone for preview
 if __name__ == "__main__":
-    # If run standalone, show sample placeholders
-    st.title("Landing — Preview")
-    show_landing(df=None)
+    st.title("Landing — Preview with in-page upload")
+    show_landing()
 
 # -----------------------
 # Data Loading & Caching
