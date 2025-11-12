@@ -5,168 +5,153 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 
-# app.py  — landing-first pattern (clean + reliable)
-
 import streamlit as st
-import pandas as pd
 
-import streamlit as st
-import streamlit.components.v1 as components
-
-def render_landing_rg():
-    # Sidebar polish + hide yellow warning
+def landing_data_talks():
+    # Theme + animations (red/green)
     st.markdown("""
     <style>
-      [data-testid="stSidebar"] { background: #f7f9ff; border-right: 1px solid #eef1f4; }
+      .stApp{ background: linear-gradient(135deg,#0FA34B 0%,#14C265 38%,#F04343 100%) fixed; }
+      /* glass shell */
+      .glass{
+        background: rgba(255,255,255,0.94);
+        border:1px solid rgba(255,255,255,.65);
+        border-radius: 22px;
+        box-shadow: 0 24px 70px rgba(0,0,0,.15);
+        padding: 28px;
+      }
+      .title{
+        font-size: 54px; font-weight: 900; margin: 0 0 6px 0;
+        background: linear-gradient(90deg,#0B2916,#0FA34B);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      }
+      .subtitle{ font-size: 22px; font-weight: 800; color:#0F5132; margin: 2px 0 14px; }
+
+      /* pulse divider */
+      .pulse{ height:4px; border-radius:999px;
+        background: linear-gradient(90deg,#E53935,#43A047,#E53935);
+        background-size: 300% 100%; animation: move 5s linear infinite; opacity:.9; }
+      @keyframes move{ 0%{background-position:0% 50%} 100%{background-position:100% 50%} }
+
+      /* chips */
+      .chip{ display:inline-block; padding:8px 12px; margin:6px 6px 0 0;
+        border-radius:999px; font-weight:700; font-size:12.5px;
+        background:#F7FFF9; border:1px solid #DDEFE6; color:#0E4F2B; }
+
+      /* three decision cards */
+      .cards{ display:grid; grid-template-columns: repeat(3, minmax(240px,1fr)); gap:16px; }
+      .card{
+        background: linear-gradient(180deg,#ffffff 0%, #f7fff9 100%);
+        border:1px solid #E7F2EA; border-radius:18px; padding:16px;
+        box-shadow:0 14px 38px rgba(0,0,0,.10); transition:.2s;
+      }
+      .card:hover{ transform: translateY(-3px); box-shadow:0 20px 50px rgba(0,0,0,.18); }
+      .card h3{ margin:0; font-size:18px; color:#0C3A21; }
+      .card p{ margin:6px 0 10px; color:#255B3E; font-size:13.5px; }
+      .kpi{ display:flex; gap:10px; margin-top:8px; }
+      .pill{ padding:6px 10px; border-radius:12px; font-weight:800; font-size:12px; }
+      .pill.g{ background:#E8F7EE; color:#0E6B3A; border:1px solid #CDEED9; }
+      .pill.r{ background:#FDEBEC; color:#AA1E23; border:1px solid #F8C8CB; }
+
+      /* image row */
+      .imgrow{ display:grid; grid-template-columns:repeat(3,minmax(220px,1fr)); gap:12px; margin-top:14px; }
+      .imgbox{ overflow:hidden; border-radius:16px; border:1px solid #EAEFF2; }
+      .imgbox img{ width:100%; height:150px; object-fit:cover; transition: transform .4s; }
+      .imgbox:hover img{ transform: scale(1.05); }
+
+      /* CTA */
+      .cta{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+      .btn{ padding:12px 18px; border-radius:14px; font-weight:900; letter-spacing:.2px; display:inline-block; }
+      .primary{ background:#E53935; color:#fff; box-shadow:0 10px 28px rgba(229,57,53,.35); }
+      .ghost{ border:2px dashed #0FA34B; color:#0A7A39; background:rgba(15,163,75,.08); }
+
+      /* hide default sidebar alert */
       [data-testid="stSidebar"] [role="alert"] { display:none !important; }
     </style>
     """, unsafe_allow_html=True)
 
-    # --- Page CSS ---
-    st.markdown("""
-    <style>
-      .stApp{
-        background: linear-gradient(135deg,#0FA34B 0%,#10B15A 28%,#F84E4E 100%);
-        background-attachment: fixed;
-      }
-      .landing {max-width:1150px; margin:0 auto; padding:64px 24px; color:#071d10;}
-      .hero {
-        background: rgba(255,255,255,.88);
-        border:1px solid rgba(255,255,255,.6);
-        box-shadow: 0 12px 50px rgba(0,0,0,.10);
-        border-radius: 24px;
-        padding: 36px;
-        position: relative;
-        overflow:hidden;
-      }
-      /* animated gradient ribbon */
-      .hero::before{
-        content:""; position:absolute; inset:-2px -2px auto -2px; height:8px; border-radius:24px 24px 0 0;
-        background: linear-gradient(90deg,#E53935,#43A047,#E53935,#43A047);
-        background-size: 300% 100%; animation: move 5s linear infinite;
-      }
-      @keyframes move { 0%{background-position:0% 50%} 100%{background-position:100% 50%} }
+    # Layout
+    left, right = st.columns([1.05, 1])
+    with left:
+        st.markdown('<div class="glass">', unsafe_allow_html=True)
+        st.markdown('<div class="title">Let the Data Talk.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="subtitle">Sales · Operations · Insights — Make Smart Decisions.</div>', unsafe_allow_html=True)
+        st.write("DailyDeck listens to your transactions and **tells the story** behind performance — "
+                 "what sold, how teams operated, and what to fix or double-down on.")
+        st.markdown('<div class="pulse"></div>', unsafe_allow_html=True)
 
-      .title{font-size:56px; line-height:1.05; margin:0; font-weight:900; color:#0b1f10;}
-      .subtitle{font-size:24px; margin:8px 0 18px; font-weight:700; color:#0f5132;}
-      .tag{font-size:17px; color:#1a3b26;}
-      .cta-row{display:flex; gap:12px; flex-wrap:wrap; margin-top:18px;}
-      .btn{
-        display:inline-block; padding:12px 18px; border-radius:14px; font-weight:800;
-        letter-spacing:.2px; text-decoration:none; transition:.2s;
-      }
-      .btn.primary{ background:#E53935; color:#fff; box-shadow:0 10px 30px rgba(229,57,53,.35);}
-      .btn.primary:hover{ transform:translateY(-1px); filter:saturate(1.1);}
-      .btn.ghost{ border:2px dashed #0FA34B; color:#0A7A39; background: rgba(15,163,75,.08);}
-      .btn.ghost:hover{ background: rgba(15,163,75,.14);}
+        # Curiosity chips
+        chips = [
+            "Top-X Items by Receipts", "Channel Mix & Shift Balance", "Cashier Throughput",
+            "Basket Affinity & Attach Rate", "Tax Compliance Pulse", "Store vs Store Benchmarks"
+        ]
+        st.markdown("".join([f'<span class="chip">{c}</span>' for c in chips]), unsafe_allow_html=True)
 
-      /* info chips */
-      .chips{display:flex; flex-wrap:wrap; gap:8px; margin:18px 0 10px;}
-      .chip{
-        background:#fff; border:1px solid #e6f2ea; color:#0E4F2B; padding:8px 12px; border-radius:999px;
-        font-size:13px; font-weight:700;
-      }
+        st.write("")  # spacer
 
-      /* gallery cards */
-      .gallery{display:grid; grid-template-columns:repeat(3, minmax(220px,1fr)); gap:16px; margin-top:20px;}
-      .card{
-        perspective: 1200px;
-      }
-      .card-inner{
-        background: linear-gradient(180deg, #ffffff 0%, #f7fff9 100%);
-        border:1px solid #e8f3ec; border-radius:20px; overflow:hidden; transform-style:preserve-3d;
-        transition: transform .25s ease, box-shadow .25s ease;
-        box-shadow:0 10px 25px rgba(0,0,0,.08);
-      }
-      .card:hover .card-inner{ transform: translateY(-4px) rotateX(2deg) rotateY(-2deg);
-        box-shadow:0 18px 45px rgba(0,0,0,.18); }
-      .card img{ width:100%; height:160px; object-fit:cover; display:block;}
-      .card h4{ margin:12px 14px 4px; font-size:16px; color:#093218;}
-      .card p{ margin:0 14px 16px; font-size:13px; color:#285d3d;}
-
-      /* bottom skeletons */
-      .skeletons{display:grid; grid-template-columns:repeat(3,minmax(220px,1fr)); gap:14px; margin: 22px 0 4px;}
-      .sk{ height:84px; border-radius:16px; background:
-        linear-gradient(90deg, #f6faf7 0%, #eef7f1 50%, #f6faf7 100%);
-        animation: shimmer 1.4s infinite; border:1px solid #e2efe7; }
-      @keyframes shimmer{ 0%{background-position:-200px 0} 100%{background-position:200px 0} }
-
-      /* faint dots overlay */
-      .dots{ position:absolute; inset:0; pointer-events:none;
-        background-image: radial-gradient(rgba(0,0,0,.06) 1px, transparent 1px);
-        background-size: 18px 18px; mix-blend-mode: overlay; opacity:.35; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # --- Page HTML + a tiny tilt JS (safe) ---
-    components.html("""
-    <div class="landing">
-      <div class="hero">
-        <div class="dots"></div>
-        <h1 class="title">DailyDeck</h1>
-        <div class="subtitle">The Story Behind the Numbers</div>
-        <div class="tag">Unveil patterns, decode store rhythms, and let your data talk.</div>
-
-        <div class="chips">
-          <span class="chip">Top-X Items (by Receipts)</span>
-          <span class="chip">Cashier Throughput</span>
-          <span class="chip">Basket Affinity</span>
-          <span class="chip">Shift Imbalances</span>
-          <span class="chip">Tax Compliance</span>
-        </div>
-
-        <div style="color:#0f5132; margin:8px 0 0;">Awaiting your dataset…</div>
-
-        <div class="cta-row">
-          <span class="btn primary">⬆ Upload your CSV on the left</span>
-          <span class="btn ghost">Live insights render instantly</span>
-        </div>
-
-        <div class="gallery">
-          <div class="card">
-            <div class="card-inner">
-              <img src="https://images.unsplash.com/photo-1542831371-29b0f74f9713?q=80&w=1200&auto=format&fit=crop" alt="POS & receipts">
-              <h4>POS Receipts</h4>
-              <p>Decode what shoppers really buy—by time, till & cashier.</p>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-inner">
-              <img src="https://images.unsplash.com/photo-1515165562835-c3b8b0b1a9a7?q=80&w=1200&auto=format&fit=crop" alt="Basket">
-              <h4>Basket Affinity</h4>
-              <p>Find combos that move together & tag tactical promos.</p>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-inner">
-              <img src="https://images.unsplash.com/photo-1519337265831-281ec6cc8514?q=80&w=1200&auto=format&fit=crop" alt="Shifts">
-              <h4>Shifts & Channels</h4>
-              <p>Spot day vs night imbalances and channel skews.</p>
-            </div>
+        # Decision cards (Sales / Operations / Insights)
+        st.markdown('<div class="cards">', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="card">
+          <h3>📈 Sales — Hear the Trend</h3>
+          <p>See momentum by hour, discover hero SKUs, and flag silent shelves.</p>
+          <div class="kpi">
+            <span class="pill g">↑ Best Seller Surge</span>
+            <span class="pill r">⚠ Price Spread</span>
           </div>
         </div>
-
-        <div class="skeletons">
-          <div class="sk"></div><div class="sk"></div><div class="sk"></div>
+        """, unsafe_allow_html=True)
+        st.markdown("""
+        <div class="card">
+          <h3>🛠 Operations — Feel the Rhythm</h3>
+          <p>Till activity, cashier pace, and shift balance — smooth flow = more revenue.</p>
+          <div class="kpi">
+            <span class="pill g">↑ Till Utilization</span>
+            <span class="pill r">⏱ Bottlenecks</span>
+          </div>
         </div>
-      </div>
-    </div>
+        """, unsafe_allow_html=True)
+        st.markdown("""
+        <div class="card">
+          <h3>🧠 Insights — Act with Confidence</h3>
+          <p>Promo pairings, store league tables, and zero-sales opportunities to capture.</p>
+          <div class="kpi">
+            <span class="pill g">✓ Promo Fit</span>
+            <span class="pill r">✕ Missed Demand</span>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    <script>
-      // subtle 3D tilt on cards
-      document.querySelectorAll('.card').forEach(card=>{
-        const inner = card.querySelector('.card-inner');
-        card.addEventListener('mousemove', e=>{
-          const r = card.getBoundingClientRect();
-          const x = e.clientX - r.left, y = e.clientY - r.top;
-          const rx = ((y/r.height)-0.5)*6;
-          const ry = ((x/r.width)-0.5)*-6;
-          inner.style.transform = `translateY(-4px) rotateX(${rx}deg) rotateY(${ry}deg)`;
-        });
-        card.addEventListener('mouseleave', ()=> inner.style.transform = '');
-      });
-    </script>
-    """, height=720)
+        # CTA
+        st.markdown('<div class="cta">'
+                    '<span class="btn primary">⬆ Upload your CSV on the left</span>'
+                    '<span class="btn ghost">Your dashboard will talk back</span>'
+                    '</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Live-feel placeholders (native)
+        a,b,c = st.columns(3)
+        a.metric("🧺 Baskets / hr", "—")
+        b.metric("🧾 Avg Items / Receipt", "—")
+        c.metric("🌙 Night vs Day", "—")
+
+    with right:
+        # Insightful, generic images (Unsplash)
+        st.markdown('<div class="glass">', unsafe_allow_html=True)
+        st.caption("What your data will surface visually")
+        st.markdown('<div class="imgrow">', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="imgbox"><img src="https://images.unsplash.com/photo-1515165562835-c3b8b0b1a9a7?q=80&w=1200&auto=format&fit=crop"></div>',
+            unsafe_allow_html=True)
+        st.markdown(
+            '<div class="imgbox"><img src="https://images.unsplash.com/photo-1542831371-29b0f74f9713?q=80&w=1200&auto=format&fit=crop"></div>',
+            unsafe_allow_html=True)
+        st.markdown(
+            '<div class="imgbox"><img src="https://images.unsplash.com/photo-1519337265831-281ec6cc8514?q=80&w=1600&auto=format&fit=crop"></div>',
+            unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # -----------------------
 # Data Loading & Caching
