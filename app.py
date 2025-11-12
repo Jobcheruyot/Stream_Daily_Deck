@@ -1,7 +1,3 @@
-# =========================
-# DailyDeck — Cinematic Landing (SAFE) + Gate
-# Paste this from line 1 to just before your data sections
-# =========================
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,219 +6,9 @@ import plotly.graph_objects as go
 from datetime import timedelta
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
-
-# ---------------------------------
-# 🎨 "Let the Data Talk" Landing UI
-# ---------------------------------
-def landing_data_talks():
-    # Theme + animations (red/green) — pure CSS, no iframes/components
-    st.markdown("""
-    <style>
-      .stApp{ background: linear-gradient(135deg,#0FA34B 0%,#14C265 38%,#F04343 100%) fixed; }
-      .glass{
-        background: rgba(255,255,255,0.94);
-        border:1px solid rgba(255,255,255,.65);
-        border-radius: 24px;
-        box-shadow: 0 26px 70px rgba(0,0,0,.16);
-        padding: 28px;
-      }
-      .title{
-        font-size: 56px; font-weight: 900; margin: 0 0 6px 0;
-        background: linear-gradient(90deg,#0B2916,#0FA34B);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      }
-      .subtitle{ font-size: 24px; font-weight: 800; color:#0F5132; margin: 2px 0 16px; }
-
-      /* animated divider */
-      .pulse{ height:5px; border-radius:999px;
-        background: linear-gradient(90deg,#E53935,#43A047,#E53935);
-        background-size: 300% 100%; animation: move 5s linear infinite; opacity:.95; }
-      @keyframes move{ 0%{background-position:0% 50%} 100%{background-position:100% 50%} }
-
-      /* chips */
-      .chip{ display:inline-block; padding:8px 12px; margin:6px 6px 0 0;
-        border-radius:999px; font-weight:700; font-size:12.5px;
-        background:#F7FFF9; border:1px solid #DDEFE6; color:#0E4F2B; }
-
-      /* animated insights ticker (CSS only) */
-      .ticker{ overflow: hidden; height: 28px; position: relative; margin-top:10px; }
-      .ticker ul{ padding:0; margin:0; list-style:none; position:absolute; width:100%; animation: slide 9s linear infinite; }
-      .ticker li{ height:28px; line-height:28px; color:#0F5132; font-weight:800; }
-      @keyframes slide{
-        0%{ transform: translateY(0); }
-        33%{ transform: translateY(-28px); }
-        66%{ transform: translateY(-56px); }
-        100%{ transform: translateY(0); }
-      }
-
-      /* 3 decision cards */
-      .cards{ display:grid; grid-template-columns: repeat(3, minmax(240px,1fr)); gap:16px; }
-      .card{
-        background: linear-gradient(180deg,#ffffff 0%, #f7fff9 100%);
-        border:1px solid #E7F2EA; border-radius:18px; padding:16px;
-        box-shadow:0 14px 38px rgba(0,0,0,.10); transition:.2s;
-      }
-      .card:hover{ transform: translateY(-3px); box-shadow:0 20px 50px rgba(0,0,0,.18); }
-      .card h3{ margin:0; font-size:18px; color:#0C3A21; }
-      .card p{ margin:6px 0 10px; color:#255B3E; font-size:13.5px; }
-      .kpi{ display:flex; gap:10px; margin-top:8px; }
-      .pill{ padding:6px 10px; border-radius:12px; font-weight:800; font-size:12px; }
-      .pill.g{ background:#E8F7EE; color:#0E6B3A; border:1px solid #CDEED9; }
-      .pill.r{ background:#FDEBEC; color:#AA1E23; border:1px solid #F8C8CB; }
-
-      /* image grid */
-      .imgrow{ display:grid; grid-template-columns:repeat(3,minmax(220px,1fr)); gap:12px; margin-top:14px; }
-      .imgbox{ overflow:hidden; border-radius:16px; border:1px solid #EAEFF2; }
-      .imgbox img{ width:100%; height:150px; object-fit:cover; transition: transform .4s; }
-      .imgbox:hover img{ transform: scale(1.05); }
-
-      /* CTA buttons */
-      .cta{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
-      .btn{ padding:12px 18px; border-radius:14px; font-weight:900; letter-spacing:.2px; display:inline-block; }
-      .primary{ background:#E53935; color:#fff; box-shadow:0 10px 28px rgba(229,57,53,.35); }
-      .ghost{ border:2px dashed #0FA34B; color:#0A7A39; background:rgba(15,163,75,.08); }
-
-      /* hide default sidebar alert */
-      [data-testid="stSidebar"] [role="alert"] { display:none !important; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    left, right = st.columns([1.05, 1], vertical_alignment="center")
-
-    with left:
-        st.markdown('<div class="glass">', unsafe_allow_html=True)
-        st.markdown('<div class="title">Let the Data Talk.</div>', unsafe_allow_html=True)
-        st.markdown('<div class="subtitle">Sales · Operations · Insights — Make Smart Decisions.</div>', unsafe_allow_html=True)
-        st.write("DailyDeck listens to your transactions and **tells the story** behind performance — "
-                 "what sold, how teams operated, and what to fix or double-down on.")
-        st.markdown('<div class="pulse"></div>', unsafe_allow_html=True)
-
-        # Curiosity chips
-        chips = [
-            "Top-X Items by Receipts", "Channel Mix & Shift Balance", "Cashier Throughput",
-            "Basket Affinity & Attach Rate", "Tax Compliance Pulse", "Store vs Store Benchmarks"
-        ]
-        st.markdown("".join([f'<span class="chip">{c}</span>' for c in chips]), unsafe_allow_html=True)
-
-        # Animated ticker (CSS only, 3 lines loop)
-        st.markdown("""
-        <div class="ticker">
-          <ul>
-            <li>📈 Sales: Hear the trend — hero SKUs & silent shelves.</li>
-            <li>🛠 Operations: Feel the rhythm — tills, cashiers, shifts.</li>
-            <li>🧠 Insights: Act with confidence — promos & zero-sales wins.</li>
-          </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # Decision cards
-        st.markdown('<div class="cards">', unsafe_allow_html=True)
-        st.markdown("""
-        <div class="card">
-          <h3>📈 Sales — Hear the Trend</h3>
-          <p>Momentum by hour, hero SKUs, and price spread flags.</p>
-          <div class="kpi">
-            <span class="pill g">↑ Best Seller Surge</span>
-            <span class="pill r">⚠ Price Anomalies</span>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown("""
-        <div class="card">
-          <h3>🛠 Operations — Feel the Rhythm</h3>
-          <p>Till activity, cashier pace, and shift balance — smooth flow = revenue.</p>
-          <div class="kpi">
-            <span class="pill g">↑ Till Utilization</span>
-            <span class="pill r">⏱ Bottlenecks</span>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown("""
-        <div class="card">
-          <h3>🧠 Insights — Act with Confidence</h3>
-          <p>Affinity pairs, league tables, and zero-sales opportunities.</p>
-          <div class="kpi">
-            <span class="pill g">✓ Promo Fit</span>
-            <span class="pill r">✕ Missed Demand</span>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # CTA
-        st.markdown('<div class="cta">'
-                    '<span class="btn primary">⬆ Upload your CSV on the left</span>'
-                    '<span class="btn ghost">Your dashboard will talk back</span>'
-                    '</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Native KPI placeholders (keeps the page alive)
-        a,b,c = st.columns(3)
-        a.metric("🧺 Baskets / hr", "—")
-        b.metric("🧾 Avg Items / Receipt", "—")
-        c.metric("🌙 Night vs Day", "—")
-
-    with right:
-        st.markdown('<div class="glass">', unsafe_allow_html=True)
-        st.caption("What your data will surface visually")
-        st.markdown('<div class="imgrow">', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="imgbox"><img src="https://images.unsplash.com/photo-1515165562835-c3b8b0b1a9a7?q=80&w=1200&auto=format&fit=crop"></div>',
-            unsafe_allow_html=True)
-        st.markdown(
-            '<div class="imgbox"><img src="https://images.unsplash.com/photo-1542831371-29b0f74f9713?q=80&w=1200&auto=format&fit=crop"></div>',
-            unsafe_allow_html=True)
-        st.markdown(
-            '<div class="imgbox"><img src="https://images.unsplash.com/photo-1519337265831-281ec6cc8514?q=80&w=1600&auto=format&fit=crop"></div>',
-            unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+# Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 
 
-# ---------------------------------
-# 🧠 Gate: show landing before data
-# ---------------------------------
-# 1) Sidebar uploader FIRST (this ensures landing can reference it)
-uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=["csv"])
-
-# 2) If nothing uploaded and no session flag → show landing and stop
-if uploaded is None and not any(k in st.session_state for k in ("df_ready","df")):
-    landing_data_talks()
-    st.stop()
-
-# 3) If a file is uploaded for the first time → read and store
-if uploaded is not None and "df_ready" not in st.session_state and "df" not in st.session_state:
-    try:
-        df = pd.read_csv(uploaded, on_bad_lines="skip", low_memory=False)
-    except Exception as e:
-        st.error(f"Failed to read CSV: {e}")
-        st.stop()
-    st.session_state.df = df
-    st.session_state.df_ready = True
-
-# 4) From here on, your app sees df (loaded once per session)
-df = st.session_state.get("df")
-
-# ---------------------------------
-# ✅ START YOUR REAL APP BELOW
-# (Sales / Operations / Insights, GPT, etc.)
-# ---------------------------------
-st.title("DailyDeck: The Story Behind the Numbers")
-
-# (Optional) tiny confirmation + safe preview
-if df is not None:
-    st.caption("✅ Data loaded.")
-    try:
-        st.dataframe(df.head(30), use_container_width=True)
-    except Exception:
-        df2 = df.copy()
-        obj_cols = [c for c in df2.columns if df2[c].dtype == "object"]
-        for c in obj_cols:
-            df2[c] = df2[c].astype("string")
-        st.dataframe(df2.head(30), use_container_width=True)
-
-# === Your existing sections continue here ===
-# e.g. sales_overview(df), operations_panels(df), insights_panels(df), gpt_analyst(df)
 
 # -----------------------
 # Data Loading & Caching
@@ -1305,43 +1091,43 @@ def customer_traffic_departmentwise(df):
     store_customer_traffic_storewise(df)
 
 def cashiers_performance(df: pd.DataFrame):
-    import pandas as pd
-    import numpy as np
     import plotly.express as px
+    import numpy as np
+    import pandas as pd
     import streamlit as st
 
     st.header("Cashiers Perfomance")
 
-    # =========================
-    # 1) Prepare Data
-    # =========================
-    required_base_cols = ['TRN_DATE', 'STORE_NAME', 'STORE_CODE', 'TILL', 'SESSION', 'RCT', 'CASHIER', 'ITEM_CODE']
-    missing_base = [c for c in required_base_cols if c not in df.columns]
-    if missing_base:
-        st.warning(f"Missing column(s): {missing_base}")
+    # ===== 1) Prepare Data =====
+    if 'TRN_DATE' not in df.columns:
+        st.warning("Missing TRN_DATE")
         return
 
     d = df.copy()
     d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
     d = d.dropna(subset=['TRN_DATE']).copy()
 
-    # Ensure identifiers are strings
-    for c in ['STORE_NAME', 'STORE_CODE', 'TILL', 'SESSION', 'RCT', 'CASHIER', 'ITEM_CODE']:
-        d[c] = d[c].astype(str).fillna('').str.strip()
+    # Ensure identifiers exist (and are strings)
+    required_id_cols = ['STORE_CODE', 'TILL', 'SESSION', 'RCT', 'CASHIER', 'ITEM_CODE']
+    missing = [c for c in required_id_cols if c not in d.columns]
+    if missing:
+        st.warning(f"Missing column(s) in dataset: {missing}")
+        return
+    for c in required_id_cols + ['STORE_NAME']:
+        if c in d.columns:
+            d[c] = d[c].astype(str).fillna('').str.strip()
 
-    # CUST_CODE (unique receipt id)
+    # Build CUST_CODE if not present
     if 'CUST_CODE' not in d.columns:
         d['CUST_CODE'] = d['STORE_CODE'] + '-' + d['TILL'] + '-' + d['SESSION'] + '-' + d['RCT']
     else:
         d['CUST_CODE'] = d['CUST_CODE'].astype(str).fillna('').str.strip()
 
-    # Unique cashier per store
+    # Create unique cashier per store (match your naming)
     if 'CASHIER-COUNT' not in d.columns:
         d['CASHIER-COUNT'] = d['STORE_NAME'] + '-' + d['CASHIER']
 
-    # =========================
-    # 2) Receipt-level duration and item count
-    # =========================
+    # ===== 2) Receipt-level duration (min) and item count =====
     receipt_duration = (
         d.groupby(['STORE_NAME', 'CUST_CODE'], as_index=False)
          .agg(Start_Time=('TRN_DATE', 'min'),
@@ -1362,9 +1148,7 @@ def cashiers_performance(df: pd.DataFrame):
         on=['STORE_NAME', 'CUST_CODE'], how='left'
     )
 
-    # =========================
-    # 3) Store-level summary (table)
-    # =========================
+    # ===== 3) Store-level summary (table at the end) =====
     store_summary = (
         receipt_stats.groupby('STORE_NAME', as_index=False)
         .agg(
@@ -1380,9 +1164,7 @@ def cashiers_performance(df: pd.DataFrame):
     store_summary.index.name = '#'
     store_summary['Total_Customers'] = store_summary['Total_Customers'].map('{:,.0f}'.format)
 
-    # =========================
-    # 4) Cashier summary (duration + customers)
-    # =========================
+    # ===== 4) Cashier summary (duration + customer count + avg items/receipt) =====
     merged_for_duration = d.merge(
         receipt_stats[['STORE_NAME', 'CUST_CODE', 'Duration_Sec']],
         on=['STORE_NAME', 'CUST_CODE'], how='left'
@@ -1412,43 +1194,23 @@ def cashiers_performance(df: pd.DataFrame):
         cashier_durations['Avg_Items_per_Receipt_Cashier'].round(1)
     )
 
-    # --- Avg quantity per scanned item per cashier ---
-    if 'QTY' in d.columns:
-        d['QTY'] = pd.to_numeric(d['QTY'], errors='coerce').fillna(0)
-        _line_qty = d[['STORE_NAME', 'CUST_CODE', 'QTY']].copy()
-        _rc_qty = _receipt_cashier.merge(_line_qty, on=['STORE_NAME', 'CUST_CODE'], how='left')
-        _avg_qty_cashier = (
-            _rc_qty.groupby(['STORE_NAME', 'CASHIER-COUNT'], as_index=False)['QTY']
-                   .mean()
-                   .rename(columns={'QTY': 'Avg_Qty_per_Scanned_Item'})
-        )
-        cashier_durations = cashier_durations.merge(
-            _avg_qty_cashier, on=['STORE_NAME', 'CASHIER-COUNT'], how='left'
-        )
-        cashier_durations['Avg_Qty_per_Scanned_Item'] = cashier_durations['Avg_Qty_per_Scanned_Item'].round(2)
-    else:
-        cashier_durations['Avg_Qty_per_Scanned_Item'] = np.nan
-
-    # =========================
-    # 5) Branch dropdown chart
-    # =========================
+    # ===== 5) Dropdown chart per branch (matches your intended look) =====
     branches = sorted(store_summary['STORE_NAME'].unique().tolist())
     if not branches:
         st.info("No branches found.")
         return
 
+    # Initial branch
+    init_branch = branches[0]
     branch_data = {
         b: cashier_durations[cashier_durations['STORE_NAME'] == b].sort_values('Avg_Serve_Min')
         for b in branches
     }
-
-    init_branch = branches[0]
     df_branch = branch_data[init_branch].copy()
     df_branch['Label_Text'] = (
         df_branch['Avg_Serve_Min'].astype(str) + ' min (' +
         df_branch['Customers_Served'].astype(str) + ' customers) — ' +
-        df_branch['Avg_Items_per_Receipt_Cashier'].fillna(0).map('{:.1f}'.format) + ' items' +
-        ' • avg qty ' + df_branch['Avg_Qty_per_Scanned_Item'].fillna(0).map('{:.2f}'.format)
+        df_branch['Avg_Items_per_Receipt_Cashier'].fillna(0).map('{:.1f}'.format) + ' items'
     )
 
     fig = px.bar(
@@ -1470,15 +1232,14 @@ def cashiers_performance(df: pd.DataFrame):
         height=max(500, 25 * len(df_branch))
     )
 
-    # Dropdown buttons
+    # Dropdown to switch branches
     buttons = []
     for b in branches:
         dfb = branch_data[b].copy()
         dfb['Label_Text'] = (
             dfb['Avg_Serve_Min'].astype(str) + ' min (' +
             dfb['Customers_Served'].astype(str) + ' customers) — ' +
-            dfb['Avg_Items_per_Receipt_Cashier'].fillna(0).map('{:.1f}'.format) + ' items' +
-            ' • avg qty ' + dfb['Avg_Qty_per_Scanned_Item'].fillna(0).map('{:.2f}'.format)
+            dfb['Avg_Items_per_Receipt_Cashier'].fillna(0).map('{:.1f}'.format) + ' items'
         )
         buttons.append(dict(
             label=b,
@@ -1503,14 +1264,11 @@ def cashiers_performance(df: pd.DataFrame):
             showactive=True
         )]
     )
-
     st.plotly_chart(fig, use_container_width=True)
 
-    # =========================
-    # 6) Display Final Table
-    # =========================
+    # ===== 7) Display Final Table =====
     try:
-        # If you have a helper that formats tables, use it
+        # If you have the helper in your app
         format_and_display(
             store_summary.reset_index(),
             numeric_cols=['Total_Customers', 'Avg_Time_per_Customer_Min', 'Avg_Items_per_Receipt'],
@@ -1519,7 +1277,6 @@ def cashiers_performance(df: pd.DataFrame):
         )
     except Exception:
         st.dataframe(store_summary, use_container_width=True)
-
 
 
 def till_usage(df):
