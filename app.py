@@ -6,7 +6,19 @@ import plotly.graph_objects as go
 from datetime import timedelta
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
-# Add the following at the very top of your Streamlit script, AFTER st.set_page_config
+
+# =========================
+# Superdeck Lightweight UI + Intro + Mini Visuals
+# =========================
+import plotly.io as pio
+
+def superdeck_ui():
+    ...
+# (whole UI block here)
+
+# initialize UI theme once
+superdeck_ui()
+
 
 # =========================
 # Superdeck Lightweight UI + Intro + Mini Visuals
