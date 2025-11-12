@@ -8,6 +8,32 @@ from datetime import timedelta
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 
+# -----------------------
+# Data Loading & Caching
+# -----------------------
+@st.cache_data
+def load_csv(path: str) -> pd.DataFrame:
+    return pd.read_csv(path, on_bad_lines='skip', low_memory=False)
+
+@st.cache_data
+def load_uploaded_file(contents: bytes) -> pd.DataFrame:
+    from io import BytesIO
+    return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
+
+def smart_load():
+    # Sidebar uploader (leave your UI as-is elsewhere)
+    st.sidebar.markdown("### Upload data (CSV) or use default")
+    uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=['csv'])
+
+    if uploaded is not None:
+        with st.spinner("Parsing uploaded CSV..."):
+            return load_uploaded_file(uploaded.getvalue())
+
+    # No default file wired in this app — show a friendly note and stop.
+    st.sidebar.info("No default CSV found. Please upload a CSV to run the app.")
+    return None
+
+
 
 
 # -----------------------
