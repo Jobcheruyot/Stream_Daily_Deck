@@ -8,6 +8,110 @@ from datetime import timedelta
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 
+# =========================
+# Superdeck Lightweight UI
+# =========================
+import plotly.io as pio
+
+def superdeck_ui():
+    st.markdown("""
+    <style>
+      :root{
+        --sd-green:#0FA34B; --sd-red:#E53935; --sd-ink:#0b1f10;
+        --sd-muted:#356b4a; --sd-card:#ffffff;
+      }
+
+      /* App background: soft green→red textures (subtle) */
+      .stApp{
+        background:
+          radial-gradient(1200px 600px at 8% 12%, #e9fff2 0%, #f6fff9 35%, transparent 60%) no-repeat,
+          radial-gradient(900px 520px at 98% 6%, #fff0f0 0%, #fff7f7 40%, transparent 70%) no-repeat,
+          linear-gradient(120deg, rgba(15,163,75,.10), rgba(229,57,53,.10));
+        background-attachment: fixed;
+      }
+
+      /* Sidebar: red→white blend + nicer uploader */
+      [data-testid="stSidebar"]{
+        background: linear-gradient(180deg, rgba(229,57,53,0.12) 0%, rgba(255,255,255,0.92) 60%, #ffffff 100%);
+        border-right: 1px solid rgba(229,57,53,0.22);
+        backdrop-filter: blur(6px);
+      }
+      [data-testid="stSidebar"] .stFileUploader{
+        border: 1px dashed rgba(229,57,53,0.35);
+        border-radius: 14px; padding: 10px 12px;
+        background: rgba(255,255,255,0.65);
+        transition: all .2s ease;
+      }
+      [data-testid="stSidebar"] .stFileUploader:hover{
+        border-color: var(--sd-red); background: rgba(255,255,255,0.9);
+      }
+
+      /* Headings with gradient ink */
+      .sd-title{
+        font-size: 46px; font-weight: 900; margin: 0 0 6px 0;
+        background: linear-gradient(90deg, var(--sd-green), var(--sd-red));
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      }
+      .sd-sub{ font-size: 18px; font-weight: 700; color: #0f5132; margin: 0 0 12px; }
+
+      /* Tabs emphasis */
+      button[role="tab"]{ font-weight: 700 !important; }
+
+      /* Buttons */
+      .sd-primary .stButton>button{
+        background: var(--sd-red); color: #fff; font-weight: 800; border: 0;
+        border-radius: 12px; padding: 8px 14px; box-shadow: 0 10px 28px rgba(229,57,53,.25);
+      }
+      .sd-ghost .stButton>button{
+        background: rgba(15,163,75,.08); color: #0A7A39; font-weight: 800;
+        border: 2px dashed #0FA34B; border-radius: 12px; padding: 8px 14px;
+      }
+
+      /* Metrics */
+      [data-testid="stMetricValue"]{ color: var(--sd-ink); }
+      [data-testid="stMetricLabel"]{ color: var(--sd-muted); font-weight: 700; }
+
+      /* Tables/DataFrames */
+      .stDataFrame, .stTable{
+        border-radius: 14px; overflow: hidden;
+        box-shadow: 0 10px 28px rgba(0,0,0,.06);
+        border: 1px solid #eef3ee;
+      }
+
+      /* Expander + containers */
+      details{ background: rgba(255,255,255,.9); border-radius: 12px; border: 1px solid #eef3ee; }
+      .block-container{ padding-top: 1.2rem; }
+
+      /* Chips (use in markdown) */
+      .chip{display:inline-block;padding:6px 10px;margin:3px;border-radius:999px;font-weight:800;font-size:12px}
+      .g{background:#E8F7EE;color:#0E6B3A;border:1px solid #CDEED9}
+      .r{background:#FDEBEC;color:#AA1E23;border:1px solid #F8C8CB}
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Plotly template: red/green palette + clean grid
+    pio.templates["superdeck"] = go.layout.Template(
+        layout=dict(
+            font=dict(family="Inter, Segoe UI, system-ui, sans-serif", size=13, color="#0b1f10"),
+            colorway=["#0FA34B", "#E53935", "#2E7D32", "#C62828", "#66BB6A", "#EF5350"],
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(255,255,255,0.85)",
+            hoverlabel=dict(bgcolor="white"),
+            xaxis=dict(gridcolor="rgba(0,0,0,.08)", zerolinecolor="rgba(0,0,0,.10)"),
+            yaxis=dict(gridcolor="rgba(0,0,0,.08)", zerolinecolor="rgba(0,0,0,.10)"),
+            margin=dict(l=10,r=10,t=50,b=30)
+        )
+    )
+    pio.templates.default = "superdeck"
+
+# call once at top-level
+superdeck_ui()
+
+# (Optional) quick header helper you can use where you like
+def sd_header(title: str, subtitle: str = ""):
+    st.markdown(f"<div class='sd-title'>{title}</div>", unsafe_allow_html=True)
+    if subtitle:
+        st.markdown(f"<div class='sd-sub'>{subtitle}</div>", unsafe_allow_html=True)
 
 
 # -----------------------
