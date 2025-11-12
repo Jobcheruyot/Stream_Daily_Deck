@@ -2562,7 +2562,7 @@ def branch_refunds_overview(df):
 # Main App
 # -----------------------
 def main():
-    st.title("DailyDeck: The Story Behind the Numbers")
+    st.title("The Story Behind the Numbers")
 
     raw_df = smart_load()
     if raw_df is None:
