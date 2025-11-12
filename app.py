@@ -9,19 +9,14 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 
 # =========================
-# Superdeck Lightweight UI
+# Superdeck Lightweight UI + Intro + Mini Visuals
 # =========================
 import plotly.io as pio
 
 def superdeck_ui():
     st.markdown("""
     <style>
-      :root{
-        --sd-green:#0FA34B; --sd-red:#E53935; --sd-ink:#0b1f10;
-        --sd-muted:#356b4a; --sd-card:#ffffff;
-      }
-
-      /* App background: soft green→red textures (subtle) */
+      :root{ --sd-green:#0FA34B; --sd-red:#E53935; --sd-ink:#0b1f10; --sd-muted:#356b4a; }
       .stApp{
         background:
           radial-gradient(1200px 600px at 8% 12%, #e9fff2 0%, #f6fff9 35%, transparent 60%) no-repeat,
@@ -29,67 +24,31 @@ def superdeck_ui():
           linear-gradient(120deg, rgba(15,163,75,.10), rgba(229,57,53,.10));
         background-attachment: fixed;
       }
-
-      /* Sidebar: red→white blend + nicer uploader */
       [data-testid="stSidebar"]{
         background: linear-gradient(180deg, rgba(229,57,53,0.12) 0%, rgba(255,255,255,0.92) 60%, #ffffff 100%);
-        border-right: 1px solid rgba(229,57,53,0.22);
-        backdrop-filter: blur(6px);
+        border-right: 1px solid rgba(229,57,53,0.22); backdrop-filter: blur(6px);
       }
       [data-testid="stSidebar"] .stFileUploader{
-        border: 1px dashed rgba(229,57,53,0.35);
-        border-radius: 14px; padding: 10px 12px;
-        background: rgba(255,255,255,0.65);
-        transition: all .2s ease;
+        border: 1px dashed rgba(229,57,53,0.35); border-radius: 14px; padding: 10px 12px;
+        background: rgba(255,255,255,0.65); transition: all .2s ease;
       }
-      [data-testid="stSidebar"] .stFileUploader:hover{
-        border-color: var(--sd-red); background: rgba(255,255,255,0.9);
-      }
-
-      /* Headings with gradient ink */
+      [data-testid="stSidebar"] .stFileUploader:hover{ border-color: var(--sd-red); background: rgba(255,255,255,0.9); }
       .sd-title{
         font-size: 46px; font-weight: 900; margin: 0 0 6px 0;
         background: linear-gradient(90deg, var(--sd-green), var(--sd-red));
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       }
-      .sd-sub{ font-size: 18px; font-weight: 700; color: #0f5132; margin: 0 0 12px; }
-
-      /* Tabs emphasis */
-      button[role="tab"]{ font-weight: 700 !important; }
-
-      /* Buttons */
-      .sd-primary .stButton>button{
-        background: var(--sd-red); color: #fff; font-weight: 800; border: 0;
-        border-radius: 12px; padding: 8px 14px; box-shadow: 0 10px 28px rgba(229,57,53,.25);
-      }
-      .sd-ghost .stButton>button{
-        background: rgba(15,163,75,.08); color: #0A7A39; font-weight: 800;
-        border: 2px dashed #0FA34B; border-radius: 12px; padding: 8px 14px;
-      }
-
-      /* Metrics */
-      [data-testid="stMetricValue"]{ color: var(--sd-ink); }
-      [data-testid="stMetricLabel"]{ color: var(--sd-muted); font-weight: 700; }
-
-      /* Tables/DataFrames */
-      .stDataFrame, .stTable{
-        border-radius: 14px; overflow: hidden;
-        box-shadow: 0 10px 28px rgba(0,0,0,.06);
-        border: 1px solid #eef3ee;
-      }
-
-      /* Expander + containers */
-      details{ background: rgba(255,255,255,.9); border-radius: 12px; border: 1px solid #eef3ee; }
-      .block-container{ padding-top: 1.2rem; }
-
-      /* Chips (use in markdown) */
+      .sd-sub{ font-size: 18px; font-weight: 700; color: #0f5132; margin: 0 0 10px; }
+      .sd-intro{ color:#183b28; line-height:1.55; }
       .chip{display:inline-block;padding:6px 10px;margin:3px;border-radius:999px;font-weight:800;font-size:12px}
       .g{background:#E8F7EE;color:#0E6B3A;border:1px solid #CDEED9}
       .r{background:#FDEBEC;color:#AA1E23;border:1px solid #F8C8CB}
+      .glass{background:rgba(255,255,255,.92);border:1px solid #eef3ee;border-radius:16px;padding:12px 14px;
+             box-shadow:0 12px 28px rgba(0,0,0,.08);}
     </style>
     """, unsafe_allow_html=True)
 
-    # Plotly template: red/green palette + clean grid
+    # Plotly template (red/green)
     pio.templates["superdeck"] = go.layout.Template(
         layout=dict(
             font=dict(family="Inter, Segoe UI, system-ui, sans-serif", size=13, color="#0b1f10"),
@@ -97,21 +56,100 @@ def superdeck_ui():
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(255,255,255,0.85)",
             hoverlabel=dict(bgcolor="white"),
-            xaxis=dict(gridcolor="rgba(0,0,0,.08)", zerolinecolor="rgba(0,0,0,.10)"),
-            yaxis=dict(gridcolor="rgba(0,0,0,.08)", zerolinecolor="rgba(0,0,0,.10)"),
+            xaxis=dict(gridcolor="rgba(0,0,0,.08)"),
+            yaxis=dict(gridcolor="rgba(0,0,0,.08)"),
             margin=dict(l=10,r=10,t=50,b=30)
         )
     )
     pio.templates.default = "superdeck"
 
-# call once at top-level
-superdeck_ui()
-
-# (Optional) quick header helper you can use where you like
 def sd_header(title: str, subtitle: str = ""):
     st.markdown(f"<div class='sd-title'>{title}</div>", unsafe_allow_html=True)
     if subtitle:
         st.markdown(f"<div class='sd-sub'>{subtitle}</div>", unsafe_allow_html=True)
+
+def sd_intro():
+    st.markdown(
+        "<div class='sd-intro'>"
+        "Let the data talk. DailyDeck listens to every receipt to surface what matters—"
+        "<b>Sales</b> momentum, <b>Operations</b> rhythm, and actionable <b>Insights</b> for smart decisions."
+        "</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='glass'>"
+        "<span class='chip g'>✔ Best Seller Surge</span>"
+        "<span class='chip r'>⚠ Price Anomalies</span>"
+        "<span class='chip g'>↑ Till Utilization</span>"
+        "<span class='chip r'>⏱ Bottlenecks</span>"
+        "<span class='chip g'>✓ Promo Fit</span>"
+        "<span class='chip r'>✕ Missed Demand</span>"
+        "</div>", unsafe_allow_html=True)
+
+def sd_preview_charts(df: pd.DataFrame | None = None):
+    """Show 3 mini visuals. Uses real df if provided; otherwise shows a tiny simulated preview.
+       UI-only, light cost, safe to call anywhere."""
+    # ---- build a tiny working frame ----
+    if df is None or df.empty:
+        # simulated hour profile
+        rng = np.random.default_rng(7)
+        h = np.arange(24)
+        base = np.abs(rng.normal(1.0, 0.25, 24))
+        base += 0.6*np.exp(-0.5*((h-13)/3.0)**2) + 0.5*np.exp(-0.5*((h-18)/2.5)**2)
+        sales = (base*rng.uniform(26000,41000,24)).round()
+        baskets = (base*rng.uniform(120,260,24)).round()
+        demo = pd.DataFrame({"hour":h, "sales":sales, "baskets":baskets})
+        mix = pd.DataFrame({"channel":["Store","Online","Delivery"],
+                            "value":[70,22,8]})
+    else:
+        demo = df.copy()
+        if "TRN_DATE" in demo.columns:
+            demo["TRN_DATE"] = pd.to_datetime(demo["TRN_DATE"], errors="coerce")
+            demo["HOUR"] = demo["TRN_DATE"].dt.hour
+        # choose numeric sales column heuristically
+        cand = [c for c in ["SALES_PRE_VAT","SP_PRE_VAT","NET_SALES","AMOUNT"] if c in demo.columns]
+        qty  = [c for c in ["QTY","QUANTITY"] if c in demo.columns]
+        if cand:
+            g = demo.dropna(subset=["HOUR"])[["HOUR", cand[0]]].groupby("HOUR").sum().reset_index()
+            g.columns = ["hour","sales"]
+        else:
+            g = pd.DataFrame({"hour":[0,1], "sales":[0,0]})
+        if qty:
+            b = demo.dropna(subset=["HOUR"])[["HOUR", qty[0]]].groupby("HOUR").sum().reset_index()
+            b.columns = ["hour","baskets"]
+        else:
+            b = pd.DataFrame({"hour":[0,1], "baskets":[0,0]})
+        demo = pd.merge(g,b,how="outer",on="hour").fillna(0)
+        mix = pd.DataFrame({"channel":["Store","Online","Delivery"], "value":[60,30,10]})
+
+    # ---- layout & charts ----
+    c1,c2,c3 = st.columns([1.3,1,1], gap="large")
+
+    with c1:
+        fig = px.area(demo, x="hour", y="sales", title="Hourly Sales", markers=True)
+        fig.update_traces(hovertemplate="Hour %{x}: %{y:,.0f}", line_width=2)
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    with c2:
+        pie = px.pie(mix, names="channel", values="value", hole=.55, title="Channel Mix")
+        pie.update_traces(textinfo="percent+label")
+        st.plotly_chart(pie, use_container_width=True, config={"displayModeBar": False})
+
+    with c3:
+        # proxy “flow” metric: baskets vs sales scale
+        val = float(demo["baskets"].sum() / max(demo["sales"].sum(),1)) * 100
+        g = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=val, gauge={'axis': {'range': [None, 100]},
+                              'bar': {'color': '#0FA34B'},
+                              'steps': [{'range':[0,60],'color':'#fdebec'},
+                                        {'range':[60,85],'color':'#fff6e6'},
+                                        {'range':[85,100],'color':'#e8f7ee'}]},
+            title={'text': "Flow Efficiency"}))
+        g.update_layout(margin=dict(l=10,r=10,t=50,b=0))
+        st.plotly_chart(g, use_container_width=True, config={"displayModeBar": False})
+
+# initialize UI theme once
+superdeck_ui()
+
 
 
 # -----------------------
