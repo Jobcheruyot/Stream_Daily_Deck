@@ -8,26 +8,19 @@ from datetime import timedelta
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 # =========================
-# Minimal, Engaging Landing (UI-only)
-# - Scales correctly on all screens
-# - Evenly distributed hero + 3 panels
-# - No charts/images, no logic changes
+
 # =========================
-# =========================
-# Minimal, Engaging Landing (UI-only)
-# - Scales correctly on all screens
-# - Evenly distributed hero + 3 panels
-# - No charts/images, no logic changes
+# Sticky Header + Landing (UI-only, safe)
 # =========================
 import streamlit as st
 
-def sd_engage_theme():
+# ---- THEME + STICKY HEADER ----
+def _theme_and_header():
     st.markdown("""
     <style>
-      :root{
-        --g:#0FA34B; --r:#E53935; --ink:#0b1f10; --muted:#255f3c;
-      }
-      /* Background */
+      :root{ --g:#0FA34B; --r:#E53935; --ink:#0b1f10; }
+
+      /* Background (subtle green↔red) */
       .stApp{
         background:
           radial-gradient(1100px 520px at 10% 10%, #eefdf3 0%, #f8fffb 45%, transparent 65%) no-repeat,
@@ -35,93 +28,92 @@ def sd_engage_theme():
           linear-gradient(120deg, rgba(15,163,75,.08), rgba(229,57,53,.08));
         background-attachment: fixed;
       }
-      /* Sidebar: red→white blend + tidy uploader */
+
+      /* Sidebar blend + uploader polish */
       [data-testid="stSidebar"]{
-        background: linear-gradient(180deg,
-                    rgba(229,57,53,0.12) 0%,
-                    rgba(255,255,255,0.94) 60%,
-                    #ffffff 100%);
-        border-right: 1px solid rgba(229,57,53,0.20);
+        background: linear-gradient(180deg, rgba(229,57,53,.12) 0%, rgba(255,255,255,.94) 60%, #fff 100%);
+        border-right: 1px solid rgba(229,57,53,.20);
         backdrop-filter: blur(6px);
       }
       [data-testid="stSidebar"] .stFileUploader{
-        border: 1px dashed rgba(229,57,53,0.35);
+        border: 1px dashed rgba(229,57,53,.35);
         border-radius: 12px; padding: 10px 12px;
-        background: rgba(255,255,255,0.7);
-        transition: border-color .2s ease, background .2s ease;
-      }
-      [data-testid="stSidebar"] .stFileUploader:hover{
-        border-color: var(--r); background: rgba(255,255,255,0.9);
+        background: rgba(255,255,255,.72);
       }
 
-      /* Centered content width + spacing */
-      .block-container{ padding-top: 0.8rem; }
-      .wrap{ max-width: 1200px; margin: 0 auto; }
-
-      /* Hero */
-      .hero{
-        margin: 10px auto 8px;
-        padding: 22px 20px 6px;
-        border-radius: 18px;
-        background: rgba(255,255,255,.90);
-        border: 1px solid #eef3ee;
-        box-shadow: 0 14px 36px rgba(0,0,0,.06);
+      /* Sticky header bar */
+      .sd-stick{
+        position: sticky; top: 0; z-index: 1000;
+        backdrop-filter: blur(8px);
+        background: linear-gradient(90deg, rgba(255,255,255,.88), rgba(255,255,255,.80));
+        border-bottom: 1px solid #eef3ee;
+        padding: 10px 16px 12px;
+        margin: -1rem -1rem 0;       /* stretch to page edges */
       }
-      .title{
-        font-size: 44px; font-weight: 900; margin: 4px 0 2px 0;
+      .sd-wrap{ max-width: 1200px; margin: 0 auto; }
+
+      .sd-title{
+        font-size: 58px; line-height: 1.02; font-weight: 900; margin: 0;
         background: linear-gradient(90deg, var(--g), var(--r));
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       }
-      .subtitle{ font-size: 16px; font-weight: 800; color:#0f5132; margin: 0 0 8px; }
+      .sd-sub{
+        margin: 2px 0 0; font-size: 20px; font-weight: 800; color: #0f5132;
+      }
 
-      /* Animated accent bar */
+      /* Tighten page top so header feels integrated */
+      .block-container{ padding-top: .6rem; }
+
+      /* Landing layout */
+      .wrap{ max-width: 1200px; margin: 0 auto; }
+      .hero{
+        margin: 14px auto 10px; padding: 22px 20px 10px;
+        border-radius: 18px; background: rgba(255,255,255,.92);
+        border: 1px solid #eef3ee; box-shadow: 0 14px 36px rgba(0,0,0,.06);
+      }
       .pulse{
-        height: 4px; border-radius: 999px; margin: 10px 0 4px;
+        height: 4px; border-radius: 999px; margin: 10px 0 6px;
         background: linear-gradient(90deg, var(--r), var(--g), var(--r));
-        background-size: 300% 100%; animation: move 5.5s linear infinite;
-        opacity: .9;
+        background-size: 300% 100%; animation: move 5.5s linear infinite; opacity:.9;
       }
       @keyframes move{ 0%{background-position:0% 50%} 100%{background-position:100% 50%} }
 
-      /* Chips */
-      .chips{margin: 6px 0 0}
-      .chip{display:inline-block;padding:6px 10px;margin:3px;border-radius:999px;
-            font-weight:800;font-size:12px}
+      .chips{margin: 6px 0 2px}
+      .chip{display:inline-block;padding:6px 10px;margin:3px;border-radius:999px;font-weight:800;font-size:12px}
       .g{background:#E8F7EE;color:#0E6B3A;border:1px solid #CDEED9}
       .r{background:#FDEBEC;color:#AA1E23;border:1px solid #F8C8CB}
 
-      /* Three-panel grid */
-      .grid{
-        display: grid; gap: 16px; margin: 10px 0 0;
-        grid-template-columns: repeat(3, minmax(260px, 1fr));
-      }
-      @media (max-width: 1100px){ .grid{ grid-template-columns: 1fr 1fr; } }
-      @media (max-width: 760px){ .grid{ grid-template-columns: 1fr; } }
+      .grid{ display:grid; gap:16px; margin:10px 0 0; grid-template-columns:repeat(3,minmax(260px,1fr)); }
+      @media (max-width:1100px){ .grid{ grid-template-columns:1fr 1fr; } }
+      @media (max-width:760px){ .grid{ grid-template-columns:1fr; } }
 
       .card{
-        background: rgba(255,255,255, .95);
+        background: rgba(255,255,255,.95);
         border: 1px solid #eef3ee; border-radius: 16px;
-        padding: 14px 14px 10px;
-        box-shadow: 0 12px 30px rgba(0,0,0,.05);
+        padding: 14px 14px 10px; box-shadow: 0 12px 30px rgba(0,0,0,.05);
       }
       .card h3{ margin: 0 0 6px; color: var(--ink); font-weight: 900; font-size: 18px; }
       .card p{ margin: 4px 0 8px; color: #255b3e; font-size: 13.5px; }
 
-      /* Metric tweaks */
+      /* Metrics polish */
       [data-testid="stMetricValue"]{ color: var(--ink); }
       [data-testid="stMetricLabel"]{ color: #356b4a; font-weight: 700; }
     </style>
     """, unsafe_allow_html=True)
 
-def sd_engage_intro():
-    # Wrap the whole hero + grid to keep centered width
-    st.markdown('<div class="wrap">', unsafe_allow_html=True)
+    # sticky header content
+    st.markdown(
+        '<div class="sd-stick">'
+        '  <div class="sd-wrap">'
+        '    <div class="sd-title">DailyDeck</div>'
+        '    <div class="sd-sub">Sales · Operations · Insights — Make Smart Decisions.</div>'
+        '  </div>'
+        '</div>', unsafe_allow_html=True)
 
-    # Hero
+# ---- LANDING (no visuals/reports) ----
+def _landing_only():
+    st.markdown('<div class="wrap">', unsafe_allow_html=True)
     st.markdown('<div class="hero">', unsafe_allow_html=True)
-    st.markdown('<div class="title">DailyDeck</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Sales · Operations · Insights — Make Smart Decisions.</div>',
-                unsafe_allow_html=True)
     st.markdown('<div class="pulse"></div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="chips">'
@@ -131,11 +123,10 @@ def sd_engage_intro():
         '<span class="chip r">⏱ Bottlenecks</span>'
         '<span class="chip g">✓ Promo Fit</span>'
         '</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
 
-    # 3 evenly distributed panels (engaging, zero data dependency)
     st.markdown('<div class="grid">', unsafe_allow_html=True)
 
+    # Sales
     with st.container():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("### 📈 Sales — Hear the Trend")
@@ -143,13 +134,9 @@ def sd_engage_intro():
         c1, c2 = st.columns(2)
         c1.metric("Revenue Today", "—")
         c2.metric("Top SKU", "—")
-        st.markdown(
-            '<div>'
-            '<span class="chip g">↑ Momentum</span>'
-            '<span class="chip r">⚠ Price Spread</span>'
-            '</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # Operations
     with st.container():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("### 🛠 Operations — Feel the Rhythm")
@@ -157,13 +144,9 @@ def sd_engage_intro():
         c1, c2 = st.columns(2)
         c1.metric("Active Tills", "—")
         c2.metric("Avg Items/Receipt", "—")
-        st.markdown(
-            '<div>'
-            '<span class="chip g">↑ Utilization</span>'
-            '<span class="chip r">⏱ Bottlenecks</span>'
-            '</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # Insights
     with st.container():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("### 🧠 Insights — Act with Confidence")
@@ -171,192 +154,22 @@ def sd_engage_intro():
         c1, c2 = st.columns(2)
         c1.metric("Affinity Wins", "—")
         c2.metric("Zero-Sales Flags", "—")
-        st.markdown(
-            '<div>'
-            '<span class="chip g">✓ Promo Fit</span>'
-            '<span class="chip r">✕ Missed Demand</span>'
-            '</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)  # /grid
     st.markdown('</div>', unsafe_allow_html=True)  # /wrap
 
-# Apply theme once
-sd_engage_theme()
+def show_landing_until_df(df_key: str = "df"):
+    """Render sticky header always; show landing only if df missing/empty, then stop."""
+    _theme_and_header()
+    _df = st.session_state.get(df_key)
+    if _df is None or (hasattr(_df, "empty") and _df.empty):
+        _landing_only()
+        st.stop()
 
-# Show the landing only when no data is present (non-blocking, safe)
-_df = st.session_state.get("df")
-if _df is None or (hasattr(_df, "empty") and _df.empty):
-    sd_engage_intro()
+# ---- CALL ONCE at the top of your main page ----
+show_landing_until_df("df")
 
-
-def sd_engage_theme():
-    st.markdown("""
-    <style>
-      :root{
-        --g:#0FA34B; --r:#E53935; --ink:#0b1f10; --muted:#255f3c;
-      }
-      /* Background */
-      .stApp{
-        background:
-          radial-gradient(1100px 520px at 10% 10%, #eefdf3 0%, #f8fffb 45%, transparent 65%) no-repeat,
-          radial-gradient(900px 520px at 95% 8%, #fff1f1 0%, #fff7f7 45%, transparent 70%) no-repeat,
-          linear-gradient(120deg, rgba(15,163,75,.08), rgba(229,57,53,.08));
-        background-attachment: fixed;
-      }
-      /* Sidebar: red→white blend + tidy uploader */
-      [data-testid="stSidebar"]{
-        background: linear-gradient(180deg,
-                    rgba(229,57,53,0.12) 0%,
-                    rgba(255,255,255,0.94) 60%,
-                    #ffffff 100%);
-        border-right: 1px solid rgba(229,57,53,0.20);
-        backdrop-filter: blur(6px);
-      }
-      [data-testid="stSidebar"] .stFileUploader{
-        border: 1px dashed rgba(229,57,53,0.35);
-        border-radius: 12px; padding: 10px 12px;
-        background: rgba(255,255,255,0.7);
-        transition: border-color .2s ease, background .2s ease;
-      }
-      [data-testid="stSidebar"] .stFileUploader:hover{
-        border-color: var(--r); background: rgba(255,255,255,0.9);
-      }
-
-      /* Centered content width + spacing */
-      .block-container{ padding-top: 0.8rem; }
-      .wrap{ max-width: 1200px; margin: 0 auto; }
-
-      /* Hero */
-      .hero{
-        margin: 10px auto 8px;
-        padding: 22px 20px 6px;
-        border-radius: 18px;
-        background: rgba(255,255,255,.90);
-        border: 1px solid #eef3ee;
-        box-shadow: 0 14px 36px rgba(0,0,0,.06);
-      }
-      .title{
-        font-size: 44px; font-weight: 900; margin: 4px 0 2px 0;
-        background: linear-gradient(90deg, var(--g), var(--r));
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      }
-      .subtitle{ font-size: 16px; font-weight: 800; color:#0f5132; margin: 0 0 8px; }
-
-      /* Animated accent bar */
-      .pulse{
-        height: 4px; border-radius: 999px; margin: 10px 0 4px;
-        background: linear-gradient(90deg, var(--r), var(--g), var(--r));
-        background-size: 300% 100%; animation: move 5.5s linear infinite;
-        opacity: .9;
-      }
-      @keyframes move{ 0%{background-position:0% 50%} 100%{background-position:100% 50%} }
-
-      /* Chips */
-      .chips{margin: 6px 0 0}
-      .chip{display:inline-block;padding:6px 10px;margin:3px;border-radius:999px;
-            font-weight:800;font-size:12px}
-      .g{background:#E8F7EE;color:#0E6B3A;border:1px solid #CDEED9}
-      .r{background:#FDEBEC;color:#AA1E23;border:1px solid #F8C8CB}
-
-      /* Three-panel grid */
-      .grid{
-        display: grid; gap: 16px; margin: 10px 0 0;
-        grid-template-columns: repeat(3, minmax(260px, 1fr));
-      }
-      @media (max-width: 1100px){ .grid{ grid-template-columns: 1fr 1fr; } }
-      @media (max-width: 760px){ .grid{ grid-template-columns: 1fr; } }
-
-      .card{
-        background: rgba(255,255,255, .95);
-        border: 1px solid #eef3ee; border-radius: 16px;
-        padding: 14px 14px 10px;
-        box-shadow: 0 12px 30px rgba(0,0,0,.05);
-      }
-      .card h3{ margin: 0 0 6px; color: var(--ink); font-weight: 900; font-size: 18px; }
-      .card p{ margin: 4px 0 8px; color: #255b3e; font-size: 13.5px; }
-
-      /* Metric tweaks */
-      [data-testid="stMetricValue"]{ color: var(--ink); }
-      [data-testid="stMetricLabel"]{ color: #356b4a; font-weight: 700; }
-    </style>
-    """, unsafe_allow_html=True)
-
-def sd_engage_intro():
-    # Wrap the whole hero + grid to keep centered width
-    st.markdown('<div class="wrap">', unsafe_allow_html=True)
-
-    # Hero
-    st.markdown('<div class="hero">', unsafe_allow_html=True)
-    st.markdown('<div class="title">DailyDeck</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Sales · Operations · Insights — Make Smart Decisions.</div>',
-                unsafe_allow_html=True)
-    st.markdown('<div class="pulse"></div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="chips">'
-        '<span class="chip g">✔ Best Sellers</span>'
-        '<span class="chip g">↑ Till Utilization</span>'
-        '<span class="chip r">⚠ Price Spread</span>'
-        '<span class="chip r">⏱ Bottlenecks</span>'
-        '<span class="chip g">✓ Promo Fit</span>'
-        '</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # 3 evenly distributed panels (engaging, zero data dependency)
-    st.markdown('<div class="grid">', unsafe_allow_html=True)
-
-    with st.container():
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown("### 📈 Sales — Hear the Trend")
-        st.markdown("Momentum by hour, hero SKUs, and signals that reveal growth or hidden loss.")
-        c1, c2 = st.columns(2)
-        c1.metric("Revenue Today", "—")
-        c2.metric("Top SKU", "—")
-        st.markdown(
-            '<div>'
-            '<span class="chip g">↑ Momentum</span>'
-            '<span class="chip r">⚠ Price Spread</span>'
-            '</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with st.container():
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown("### 🛠 Operations — Feel the Rhythm")
-        st.markdown("Till activity, cashier pace, and shift balance — smoother flow, stronger sales.")
-        c1, c2 = st.columns(2)
-        c1.metric("Active Tills", "—")
-        c2.metric("Avg Items/Receipt", "—")
-        st.markdown(
-            '<div>'
-            '<span class="chip g">↑ Utilization</span>'
-            '<span class="chip r">⏱ Bottlenecks</span>'
-            '</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with st.container():
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown("### 🧠 Insights — Act with Confidence")
-        st.markdown("Affinity pairs, zero-sales gaps, and promo-ready product groups.")
-        c1, c2 = st.columns(2)
-        c1.metric("Affinity Wins", "—")
-        c2.metric("Zero-Sales Flags", "—")
-        st.markdown(
-            '<div>'
-            '<span class="chip g">✓ Promo Fit</span>'
-            '<span class="chip r">✕ Missed Demand</span>'
-            '</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)  # /grid
-    st.markdown('</div>', unsafe_allow_html=True)  # /wrap
-
-# Apply theme once
-sd_engage_theme()
-
-# Show the landing only when no data is present (non-blocking, safe)
-_df = st.session_state.get("df")
-if _df is None or (hasattr(_df, "empty") and _df.empty):
-    sd_engage_intro()
 
 
 # -----------------------
