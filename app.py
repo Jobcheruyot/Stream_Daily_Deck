@@ -1,34 +1,18 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
+# =========================
+# Superdeck Lightweight UI + Intro + Mini Visuals (UI-only)
+# =========================
+import plotly.io as pio
 import plotly.graph_objects as go
-from datetime import timedelta
-
-st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
-
-# =========================
-# Superdeck Lightweight UI + Intro + Mini Visuals
-# =========================
-import plotly.io as pio
-
-def superdeck_ui():
-    ...
-# (whole UI block here)
-
-# initialize UI theme once
-superdeck_ui()
-
-
-# =========================
-# Superdeck Lightweight UI + Intro + Mini Visuals
-# =========================
-import plotly.io as pio
+import plotly.express as px
+import numpy as np
+import pandas as pd
+import streamlit as st
 
 def superdeck_ui():
     st.markdown("""
     <style>
       :root{ --sd-green:#0FA34B; --sd-red:#E53935; --sd-ink:#0b1f10; --sd-muted:#356b4a; }
+      /* App background: soft green/red textures */
       .stApp{
         background:
           radial-gradient(1200px 600px at 8% 12%, #e9fff2 0%, #f6fff9 35%, transparent 60%) no-repeat,
@@ -36,6 +20,7 @@ def superdeck_ui():
           linear-gradient(120deg, rgba(15,163,75,.10), rgba(229,57,53,.10));
         background-attachment: fixed;
       }
+      /* Sidebar: red→white blend + nicer uploader */
       [data-testid="stSidebar"]{
         background: linear-gradient(180deg, rgba(229,57,53,0.12) 0%, rgba(255,255,255,0.92) 60%, #ffffff 100%);
         border-right: 1px solid rgba(229,57,53,0.22); backdrop-filter: blur(6px);
@@ -45,22 +30,36 @@ def superdeck_ui():
         background: rgba(255,255,255,0.65); transition: all .2s ease;
       }
       [data-testid="stSidebar"] .stFileUploader:hover{ border-color: var(--sd-red); background: rgba(255,255,255,0.9); }
+
+      /* Headings */
       .sd-title{
         font-size: 46px; font-weight: 900; margin: 0 0 6px 0;
         background: linear-gradient(90deg, var(--sd-green), var(--sd-red));
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       }
       .sd-sub{ font-size: 18px; font-weight: 700; color: #0f5132; margin: 0 0 10px; }
-      .sd-intro{ color:#183b28; line-height:1.55; }
+      .sd-intro{ color:#183b28; line-height:1.55; margin-bottom:8px; }
+
+      /* Chips & cards */
       .chip{display:inline-block;padding:6px 10px;margin:3px;border-radius:999px;font-weight:800;font-size:12px}
       .g{background:#E8F7EE;color:#0E6B3A;border:1px solid #CDEED9}
       .r{background:#FDEBEC;color:#AA1E23;border:1px solid #F8C8CB}
       .glass{background:rgba(255,255,255,.92);border:1px solid #eef3ee;border-radius:16px;padding:12px 14px;
              box-shadow:0 12px 28px rgba(0,0,0,.08);}
+
+      /* Tables/DataFrames polish */
+      .stDataFrame, .stTable{
+        border-radius: 14px; overflow: hidden;
+        box-shadow: 0 10px 28px rgba(0,0,0,.06);
+        border: 1px solid #eef3ee;
+      }
+
+      /* Make block container slightly tighter at the top */
+      .block-container{ padding-top: 1.0rem; }
     </style>
     """, unsafe_allow_html=True)
 
-    # Plotly template (red/green)
+    # Plotly template (red/green palette)
     pio.templates["superdeck"] = go.layout.Template(
         layout=dict(
             font=dict(family="Inter, Segoe UI, system-ui, sans-serif", size=13, color="#0b1f10"),
@@ -96,43 +95,40 @@ def sd_intro():
         "<span class='chip r'>✕ Missed Demand</span>"
         "</div>", unsafe_allow_html=True)
 
+def _demo_hour_profile(seed=7):
+    rng = np.random.default_rng(seed)
+    h = np.arange(24)
+    base = np.abs(rng.normal(1.0, 0.25, 24))
+    base += 0.6*np.exp(-0.5*((h-13)/3.0)**2) + 0.5*np.exp(-0.5*((h-18)/2.5)**2)
+    sales = (base*rng.uniform(26000,41000,24)).round()
+    baskets = (base*rng.uniform(120,260,24)).round()
+    demo = pd.DataFrame({"hour":h, "sales":sales, "baskets":baskets})
+    mix = pd.DataFrame({"channel":["Store","Online","Delivery"], "value":[70,22,8]})
+    return demo, mix
+
 def sd_preview_charts(df: pd.DataFrame | None = None):
-    """Show 3 mini visuals. Uses real df if provided; otherwise shows a tiny simulated preview.
-       UI-only, light cost, safe to call anywhere."""
-    # ---- build a tiny working frame ----
-    if df is None or df.empty:
-        # simulated hour profile
-        rng = np.random.default_rng(7)
-        h = np.arange(24)
-        base = np.abs(rng.normal(1.0, 0.25, 24))
-        base += 0.6*np.exp(-0.5*((h-13)/3.0)**2) + 0.5*np.exp(-0.5*((h-18)/2.5)**2)
-        sales = (base*rng.uniform(26000,41000,24)).round()
-        baskets = (base*rng.uniform(120,260,24)).round()
-        demo = pd.DataFrame({"hour":h, "sales":sales, "baskets":baskets})
-        mix = pd.DataFrame({"channel":["Store","Online","Delivery"],
-                            "value":[70,22,8]})
+    """Three light visuals; uses real df if available else demo."""
+    # Prepare data
+    if df is None or getattr(df, "empty", True):
+        demo, mix = _demo_hour_profile()
     else:
         demo = df.copy()
         if "TRN_DATE" in demo.columns:
             demo["TRN_DATE"] = pd.to_datetime(demo["TRN_DATE"], errors="coerce")
             demo["HOUR"] = demo["TRN_DATE"].dt.hour
-        # choose numeric sales column heuristically
         cand = [c for c in ["SALES_PRE_VAT","SP_PRE_VAT","NET_SALES","AMOUNT"] if c in demo.columns]
         qty  = [c for c in ["QTY","QUANTITY"] if c in demo.columns]
-        if cand:
-            g = demo.dropna(subset=["HOUR"])[["HOUR", cand[0]]].groupby("HOUR").sum().reset_index()
+        g = demo.dropna(subset=["HOUR"])[["HOUR", cand[0]]].groupby("HOUR").sum().reset_index() if cand else pd.DataFrame()
+        b = demo.dropna(subset=["HOUR"])[["HOUR", qty[0]]].groupby("HOUR").sum().reset_index() if qty else pd.DataFrame()
+        if g.empty:
+            demo, mix = _demo_hour_profile()
+        else:
             g.columns = ["hour","sales"]
-        else:
-            g = pd.DataFrame({"hour":[0,1], "sales":[0,0]})
-        if qty:
-            b = demo.dropna(subset=["HOUR"])[["HOUR", qty[0]]].groupby("HOUR").sum().reset_index()
-            b.columns = ["hour","baskets"]
-        else:
-            b = pd.DataFrame({"hour":[0,1], "baskets":[0,0]})
-        demo = pd.merge(g,b,how="outer",on="hour").fillna(0)
-        mix = pd.DataFrame({"channel":["Store","Online","Delivery"], "value":[60,30,10]})
+            b.columns = ["hour","baskets"] if not b.empty else ["hour","baskets"]
+            demo = pd.merge(g,b,how="outer",on="hour").fillna(0)
+            mix = pd.DataFrame({"channel":["Store","Online","Delivery"], "value":[60,30,10]})
 
-    # ---- layout & charts ----
+    # Layout + charts
     c1,c2,c3 = st.columns([1.3,1,1], gap="large")
 
     with c1:
@@ -146,9 +142,8 @@ def sd_preview_charts(df: pd.DataFrame | None = None):
         st.plotly_chart(pie, use_container_width=True, config={"displayModeBar": False})
 
     with c3:
-        # proxy “flow” metric: baskets vs sales scale
         val = float(demo["baskets"].sum() / max(demo["sales"].sum(),1)) * 100
-        g = go.Figure(go.Indicator(
+        gfig = go.Figure(go.Indicator(
             mode="gauge+number",
             value=val, gauge={'axis': {'range': [None, 100]},
                               'bar': {'color': '#0FA34B'},
@@ -156,13 +151,24 @@ def sd_preview_charts(df: pd.DataFrame | None = None):
                                         {'range':[60,85],'color':'#fff6e6'},
                                         {'range':[85,100],'color':'#e8f7ee'}]},
             title={'text': "Flow Efficiency"}))
-        g.update_layout(margin=dict(l=10,r=10,t=50,b=0))
-        st.plotly_chart(g, use_container_width=True, config={"displayModeBar": False})
+        gfig.update_layout(margin=dict(l=10,r=10,t=50,b=0))
+        st.plotly_chart(gfig, use_container_width=True, config={"displayModeBar": False})
 
-# initialize UI theme once
+# Initialize theme once
 superdeck_ui()
 
-
+# ----------- OPTIONAL AUTO-RENDER (no logic change) -----------
+# If no data is loaded yet, show the intro + mini visuals at the top.
+# As soon as your app sets st.session_state['df'], this section stops appearing.
+if not st.session_state.get("_sd_intro_rendered", False):
+    _df = st.session_state.get("df")  # your app can set this later
+    if _df is None or (hasattr(_df, "empty") and _df.empty):
+        sd_header("DailyDeck: The Story Behind the Numbers",
+                  "Sales · Operations · Insights — Make Smart Decisions.")
+        sd_intro()
+        sd_preview_charts(None)  # demo visuals pre-upload
+    st.session_state["_sd_intro_rendered"] = True
+# ---------------------------------------------------------------
 
 # -----------------------
 # Data Loading & Caching
