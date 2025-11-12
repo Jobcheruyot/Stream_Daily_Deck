@@ -8,7 +8,6 @@ from datetime import timedelta
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 # =========================
-# =========================
 # Clean Landing (pre-data only) + Soft Red/Green Theme
 # =========================
 import streamlit as st
@@ -27,7 +26,7 @@ def _sd_theme():
         background-attachment: fixed;
       }
 
-      /* Sidebar (keep uploader visible & tidy) */
+      /* Sidebar (keep uploader tidy & obvious) */
       [data-testid="stSidebar"]{
         background: linear-gradient(180deg, rgba(229,57,53,.10) 0%, rgba(255,255,255,.96) 60%, #fff 100%);
         border-right: 1px solid rgba(229,57,53,.18);
@@ -72,11 +71,11 @@ def _sd_theme():
       .sd-card h3{ margin: 0 0 6px; color: var(--ink); font-weight:900; font-size:18px; }
       .sd-card p{  margin: 4px 0 6px; color:#255b3e; font-size:13.5px; }
 
-      /* Streamlit metric polish */
+      /* Metrics polish */
       [data-testid="stMetricValue"]{ color: var(--ink); }
       [data-testid="stMetricLabel"]{ color:#356b4a; font-weight:700; }
 
-      /* Keep top padding reasonable (don’t hide sidebar elements) */
+      /* Slightly tighter top padding */
       .block-container{ padding-top: .8rem; }
     </style>
     """, unsafe_allow_html=True)
@@ -87,7 +86,7 @@ def _sd_landing():
     st.markdown('<div class="sd-title">DailyDeck</div>', unsafe_allow_html=True)
     st.markdown('<div class="sd-sub">Sales · Operations · Insights — Make Smart Decisions.</div>',
                 unsafe_allow_html=True)
-    st.caption("⬅️ Upload your CSV from the sidebar to begin. The landing disappears once data loads.")
+    st.caption("⬅️ Upload your CSV from the sidebar to begin. This landing disappears once data loads.")
     st.markdown(
         '<div class="sd-chips">'
         '<span class="sd-chip sd-g">✔ Best Sellers</span>'
@@ -96,7 +95,7 @@ def _sd_landing():
         '<span class="sd-chip sd-r">⏱ Bottlenecks</span>'
         '<span class="sd-chip sd-g">✓ Promo Fit</span>'
         '</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)  # /hero
 
     st.markdown('<div class="sd-grid">', unsafe_allow_html=True)
 
@@ -104,7 +103,46 @@ def _sd_landing():
     with st.container():
         st.markdown('<div class="sd-card">', unsafe_allow_html=True)
         st.markdown("### 📈 Sales — Hear the Trend")
-        st.markdown("Momentum by hour, hero SKUs, and signals that
+        st.markdown("Momentum by hour, hero SKUs, and signals that reveal growth or hidden loss.")
+        c1, c2 = st.columns(2)
+        c1.metric("Revenue Today", "—")
+        c2.metric("Top SKU", "—")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Operations
+    with st.container():
+        st.markdown('<div class="sd-card">', unsafe_allow_html=True)
+        st.markdown("### 🛠 Operations — Feel the Rhythm")
+        st.markdown("Till activity, cashier pace, and shift balance — smoother flow, stronger sales.")
+        c1, c2 = st.columns(2)
+        c1.metric("Active Tills", "—")
+        c2.metric("Avg Items/Receipt", "—")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Insights
+    with st.container():
+        st.markdown('<div class="sd-card">', unsafe_allow_html=True)
+        st.markdown("### 🧠 Insights — Act with Confidence")
+        st.markdown("Affinity pairs, zero-sales gaps, and promo-ready product groups.")
+        c1, c2 = st.columns(2)
+        c1.metric("Affinity Wins", "—")
+        c2.metric("Zero-Sales Flags", "—")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)  # /grid
+    st.markdown('</div>', unsafe_allow_html=True)  # /wrap
+
+def show_landing_until_df(df_key: str = "df"):
+    """Show themed landing only if df missing/empty, then stop page so reports take over later."""
+    _sd_theme()
+    _df = st.session_state.get(df_key)
+    if _df is None or (hasattr(_df, "empty") and _df.empty):
+        _sd_landing()
+        st.stop()
+
+# ---- Call once at the very top of your main page ----
+show_landing_until_df("df")
+
 
 
 
