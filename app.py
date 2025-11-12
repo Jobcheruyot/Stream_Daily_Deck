@@ -1,398 +1,14 @@
-"""
-Landing page with in-page CSV upload, robust navigation and a Home tab for section pages.
-
-This file provides:
-- show_landing()           -> the landing snapshot with in-page uploader (enhanced UI)
-- show_top_nav()           -> a compact horizontal nav bar (Home | Sales | Operations | Insights)
-- navigate_to(section, subsection=None) -> navigation helper (uses query-params to trigger rerun)
-- clear_uploaded_data()    -> clears session upload state
-
-Integration notes:
-- In your main app, call show_top_nav() at the top of each page (Sales/Operations/Insights)
-  so users always see the Home tab and can return to Landing.
-- Use st.experimental_get_query_params() or st.session_state['section'] to route views.
-"""
-
-from io import BytesIO
-from datetime import datetime, timezone, timedelta
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
 import plotly.express as px
+import plotly.graph_objects as go
+from datetime import timedelta
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
+# Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 
-# Theme colors
-RED = "#d62728"
-GREEN = "#2ca02c"
-ACCENT_BG = "linear-gradient(90deg, #f8fbf8 0%, #fef6f6 100%)"
 
-# -----------------------
-# Helpers
-# -----------------------
-def _safe_sum(df, col):
-    try:
-        return float(pd.to_numeric(df.get(col, pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
-    except Exception:
-        return 0.0
-
-def _sparkline_fig(series, color):
-    x = list(range(len(series))) if getattr(series, "index", None) is None else series.index
-    y = series.values if hasattr(series, "values") else series
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=x,
-        y=y,
-        mode='lines',
-        line=dict(color=color, width=2),
-        fill='tozeroy'
-    ))
-    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=90,
-                      xaxis=dict(showgrid=False, visible=False),
-                      yaxis=dict(showgrid=False, visible=False))
-    return fig
-
-def _kpi_card(title, value, delta=None, icon=None, color="#111"):
-    delta_text = ""
-    if delta is not None:
-        try:
-            d = float(delta)
-            arrow = "▲" if d >= 0 else "▼"
-            col = GREEN if d >= 0 else RED
-            delta_text = f"<span style='color:{col}; font-weight:600;'>{arrow} {abs(d):.1f}%</span>"
-        except Exception:
-            delta_text = ""
-    icon_html = f"<div style='font-size:28px;line-height:28px'>{icon}</div>" if icon else ""
-    st.markdown(
-        f"""
-        <div style="
-            background: #ffffff;
-            padding:12px;
-            border-radius:8px;
-            box-shadow:0 4px 12px rgba(0,0,0,0.06);
-            height:110px;
-            display:flex;
-            align-items:center;
-            gap:12px;
-        ">
-            {icon_html}
-            <div>
-                <div style="font-size:12px;color:#666;">{title}</div>
-                <div style="font-size:20px;color:{color};font-weight:700;margin-top:6px;">{value}</div>
-                <div style="margin-top:6px;">{delta_text}</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-def _minimal_clean_and_derive(raw_df: pd.DataFrame) -> pd.DataFrame:
-    d = raw_df.copy()
-    for c in ['STORE_NAME','TRN_DATE','NET_SALES','CUST_CODE','TILL','STORE_CODE','SALES_CHANNEL_L1','CATEGORY','SP_PRE_VAT','ITEM_CODE','LOYALTY_CUSTOMER_CODE','VAT_AMT']:
-        if c in d.columns and d[c].dtype == object:
-            d[c] = d[c].astype(str).str.strip()
-    if 'TRN_DATE' in d.columns:
-        d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-        d = d.dropna(subset=['TRN_DATE'])
-    for c in ['NET_SALES','QTY','SP_PRE_VAT','VAT_AMT']:
-        if c in d.columns:
-            d[c] = pd.to_numeric(d[c].astype(str).str.replace(',', '', regex=False), errors='coerce').fillna(0)
-    if 'GROSS_SALES' not in d.columns:
-        d['GROSS_SALES'] = d.get('NET_SALES', 0) + d.get('VAT_AMT', 0)
-    if 'Till_Code' not in d.columns and all(x in d.columns for x in ['TILL','STORE_CODE']):
-        d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
-    return d
-
-# -----------------------
-# Upload / state helpers
-# -----------------------
-def _process_uploaded_file_bytes(raw_bytes: bytes):
-    try:
-        raw_df = pd.read_csv(BytesIO(raw_bytes), on_bad_lines='skip', low_memory=False)
-    except Exception as e:
-        return False, f"CSV parsing error: {e}", None, None
-
-    # Prefer host app's cleaner if present
-    cleaner = globals().get('clean_and_derive', None)
-    if callable(cleaner):
-        try:
-            df = cleaner(raw_df)
-        except Exception:
-            df = _minimal_clean_and_derive(raw_df)
-    else:
-        df = _minimal_clean_and_derive(raw_df)
-
-    st.session_state['raw_df_bytes'] = raw_bytes
-    st.session_state['raw_df'] = raw_df
-    st.session_state['df'] = df
-    st.session_state['data_uploaded'] = True
-    return True, None, raw_df, df
-
-def clear_uploaded_data():
-    keys = ['raw_df_bytes','raw_df','df','data_uploaded']
-    for k in keys:
-        if k in st.session_state:
-            del st.session_state[k]
-
-def navigate_to(section: str, subsection: str | None = None):
-    """
-    Update session_state and query params to trigger a rerun across Streamlit versions
-    without calling experimental_rerun directly.
-    """
-    st.session_state['section'] = section
-    if subsection:
-        st.session_state['subsection'] = subsection
-    else:
-        if 'subsection' in st.session_state:
-            del st.session_state['subsection']
-
-    # Primary route to trigger rerun
-    try:
-        params = {"section": section}
-        if subsection:
-            params["subsection"] = subsection
-        st.experimental_set_query_params(**params)
-    except Exception:
-        # fallback: flip a token
-        st.session_state['_nav_token'] = not st.session_state.get('_nav_token', False)
-
-def current_section_from_state_or_query():
-    params = {}
-    try:
-        params = st.experimental_get_query_params()
-    except Exception:
-        params = {}
-    s = st.session_state.get('section') or (params.get('section', [''])[0] if 'section' in params else '')
-    if not s:
-        s = "LANDING"
-    return s
-
-# -----------------------
-# Navigation UI (top bar)
-# -----------------------
-def show_top_nav():
-    """
-    Renders a compact horizontal navigation bar with Home | Sales | Operations | Insights.
-    Call this at the top of section pages (Sales/Operations/Insights) so users can easily
-    go back Home.
-    """
-    section = current_section_from_state_or_query()
-    cols = st.columns([1, 1, 1, 1, 6])  # last column for spacing/controls
-
-    labels = ["Home", "Sales", "Operations", "Insights"]
-    targets = ["LANDING", "SALES", "OPERATIONS", "INSIGHTS"]
-    icons = ["🏠", "🛒", "⚙️", "🔎"]
-
-    for i, (c, label, target, icon) in enumerate(zip(cols[:4], labels, targets, icons)):
-        btn_label = f"{icon} {label}"
-        # Highlight the active tab visually
-        if section == target:
-            c.markdown(f"<div style='padding:8px;border-radius:8px;background:#f0f0f0;font-weight:700;text-align:center;'>{btn_label}</div>", unsafe_allow_html=True)
-        else:
-            c.button(btn_label, key=f"nav_{target}", on_click=lambda t=target: navigate_to(t))
-
-    # rightmost column: show upload status and quick-clear
-    right = cols[4]
-    if st.session_state.get('data_uploaded', False):
-        right.markdown("<div style='text-align:right;color:#2a7f2a;'>✅ Data loaded in session</div>", unsafe_allow_html=True)
-        right.button("Clear uploaded data", on_click=clear_uploaded_data)
-    else:
-        right.markdown("<div style='text-align:right;color:#666;'>No CSV loaded</div>", unsafe_allow_html=True)
-
-# -----------------------
-# Enhanced Landing UI
-# -----------------------
-def show_landing():
-    """
-    Enhanced landing: hero banner, metric cards, quick-tabs and CTAs.
-    Replaces the previous simpler landing with a more engaging layout.
-    """
-    # Small CSS tweaks for a richer look
-    st.markdown(
-        """
-        <style>
-          .hero {
-            background: linear-gradient(90deg, rgba(44,162,99,0.06) 0%, rgba(214,39,40,0.04) 100%);
-            padding:18px;
-            border-radius:12px;
-            margin-bottom:12px;
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-            gap:12px;
-          }
-          .hero-title { font-size:32px; font-weight:800; margin:0; color:#1f2937; }
-          .hero-sub { color:#4b5563; margin-top:6px; }
-          .cta-btn {
-            background:#111827; color:white; padding:8px 14px; border-radius:8px; text-decoration:none;
-          }
-          .kpi-row { gap:12px; margin-bottom:8px; }
-          .muted { color:#6b7280; }
-          /* Make the left uploader area visually lighter */
-          .uploader-box .stFileUploader { border-radius:8px; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # Top nav for landing (keeps user oriented)
-    show_top_nav()
-
-    # Hero area
-    df = st.session_state.get('df', None)
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-    st.markdown(
-        f"""
-        <div class="hero">
-          <div style="min-width:320px;">
-            <div class="hero-title">DailyDeck — Snapshot</div>
-            <div class="hero-sub">The Story Behind the Numbers — concise highlights to act on today.</div>
-            <div style="margin-top:8px;" class="muted">As of {now_str}</div>
-          </div>
-          <div style="text-align:right; min-width:240px;">
-            <div style="margin-bottom:8px;">
-              <a class="cta-btn" href="javascript:window.location.reload();">Refresh Data</a>
-            </div>
-            <div class="muted" style="font-size:13px;">Tip: upload CSV on the left to enable detailed views</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # Two-column layout: left = uploader/quick info, right = snapshot
-    left_col, right_col = st.columns([0.8, 2])
-
-    # Left: uploader + quick links
-    with left_col:
-        st.markdown("<div class='uploader-box'>", unsafe_allow_html=True)
-        uploaded = st.file_uploader("Drag & drop DAILY_POS_TRN_ITEMS CSV", type=["csv"], help="CSV with transaction rows - once uploaded the page will parse & remember it for this session.")
-        if uploaded is not None:
-            raw_bytes = uploaded.getvalue()
-            with st.spinner("Parsing uploaded CSV..."):
-                ok, err, raw_df, df_local = _process_uploaded_file_bytes(raw_bytes)
-            if ok:
-                st.success("CSV parsed and stored in session")
-            else:
-                st.error(err)
-
-        # Quick actions
-        st.markdown("---")
-        st.write("Quick actions")
-        col_a, col_b = st.columns(2)
-        if col_a.button("🏠 Home", key="quick_home"):
-            navigate_to("LANDING")
-        if col_b.button("🛒 Sales", key="quick_sales"):
-            navigate_to("SALES")
-        if st.session_state.get("data_uploaded", False):
-            if st.button("Clear uploaded data", key="clear_upload_small"):
-                clear_uploaded_data()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # Right: lively snapshot
-    with right_col:
-        # Prepare simple KPIs from session df
-        if df is None or df.empty:
-            total_sales = 0.0
-            avg_basket = 0.0
-            peak_tills = 0
-            loyalty_contacts = 0
-        else:
-            total_sales = _safe_sum(df, "NET_SALES")
-            avg_basket = _safe_sum(df, "NET_SALES") / max(1, df["CUST_CODE"].nunique()) if "CUST_CODE" in df.columns else 0
-            try:
-                peak_tills = int(df["Till_Code"].nunique()) if "Till_Code" in df.columns else 0
-            except Exception:
-                peak_tills = 0
-            loyalty_contacts = int(df["LOYALTY_CUSTOMER_CODE"].replace({"nan":"", "NaN":""}).astype(str).str.strip().astype(bool).sum()) if "LOYALTY_CUSTOMER_CODE" in df.columns else 0
-
-        # KPI cards row (uses your _kpi_card helper)
-        k1, k2, k3, k4 = st.columns([1,1,1,1], gap="small")
-        with k1:
-            _kpi_card("Total Net Sales (KSh)", f"{total_sales:,.0f}", delta=None, icon="💰", color=RED)
-        with k2:
-            _kpi_card("Avg Basket (KSh)", f"{avg_basket:,.0f}", delta=None, icon="🧾", color="#0b63ce")
-        with k3:
-            _kpi_card("Peak Active Tills", f"{peak_tills}", delta=None, icon="⚙️", color=GREEN)
-        with k4:
-            _kpi_card("Loyalty Contacts", f"{loyalty_contacts}", delta=None, icon="⭐", color="#b36b00")
-
-        st.markdown("")
-
-        # Tabs to surface quick insights (sparkline + top categories + alerts)
-        tab_overview, tab_top_skus, tab_alerts = st.tabs(["Overview", "Top Categories", "Signals & Alerts"])
-
-        with tab_overview:
-            # Sparkline of last 30 days
-            if df is None or df.empty or "TRN_DATE" not in df.columns:
-                st.info("No sales time series available — upload CSV for trends.")
-            else:
-                s = df.groupby(df["TRN_DATE"].dt.date)["NET_SALES"].sum().sort_index()
-                recent = s.tail(30)
-                fig = _sparkline_fig(recent, RED)
-                fig.update_layout(height=120, margin=dict(t=10,b=10,l=10,r=10))
-                st.plotly_chart(fig, width="stretch")
-
-                # Small bar for top channels
-                try:
-                    top_channel_tbl = df.groupby("SALES_CHANNEL_L1", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(5)
-                    fig2 = px.bar(top_channel_tbl[::-1], x="NET_SALES", y="SALES_CHANNEL_L1", orientation="h", color_discrete_sequence=[GREEN])
-                    fig2.update_layout(height=240, margin=dict(t=8,b=8,l=8,r=8), showlegend=False)
-                    st.plotly_chart(fig2, width="stretch")
-                except Exception:
-                    pass
-
-        with tab_top_skus:
-            if df is None or df.empty:
-                st.info("No data for SKU analysis.")
-            else:
-                sku_top = df.groupby(["ITEM_CODE", "ITEM_NAME"], as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(10)
-                sku_top.insert(0, "#", range(1, len(sku_top)+1))
-                sku_top_display = sku_top.rename(columns={"NET_SALES":"NET_SALES_KSh"})
-                format_and_display(sku_top_display[["#", "ITEM_CODE", "ITEM_NAME", "NET_SALES_KSh"]], numeric_cols=["NET_SALES_KSh"], index_col="ITEM_CODE")
-
-        with tab_alerts:
-            # Very small rule-based alerts (customize thresholds)
-            alerts = []
-            if df is not None and not df.empty:
-                # Example alert: drop vs yesterday > 20%
-                try:
-                    s2 = df.groupby(df["TRN_DATE"].dt.date)["NET_SALES"].sum().sort_index()
-                    if len(s2) >= 3:
-                        last, prev = float(s2.iloc[-1]), float(s2.iloc[-2])
-                        pct_change = (last - prev) / (prev if prev != 0 else 1) * 100
-                        if pct_change < -20:
-                            alerts.append(("Sales drop >20% vs previous day", f"{pct_change:.1f}%", "⚠️"))
-                except Exception:
-                    pass
-                # Example alert: many multi-price SKUs
-                try:
-                    dtmp = df.copy()
-                    dtmp["DATE"] = dtmp["TRN_DATE"].dt.date
-                    grp = dtmp.groupby(["DATE", "ITEM_CODE"])["SP_PRE_VAT"].nunique().reset_index(name="num_prices")
-                    multi_days = (grp["num_prices"] > 1).sum()
-                    if multi_days > 10:
-                        alerts.append((f"Multi-priced SKUs today: {multi_days}", "Investigate pricing", "🔎"))
-                except Exception:
-                    pass
-
-            if not alerts:
-                st.success("No immediate alerts. Data looks normal (or upload required).")
-            else:
-                for title, msg, ico in alerts:
-                    st.warning(f"{ico} {title} — {msg}")
-
-        # CTAs at bottom of right column
-        st.markdown("---")
-        c1, c2, c3 = st.columns([1,1,1])
-        if c1.button("Explore Sales", key="landing_sales"):
-            navigate_to("SALES")
-        if c2.button("Explore Ops", key="landing_ops"):
-            navigate_to("OPERATIONS")
-        if c3.button("Explore Insights", key="landing_ins"):
-            navigate_to("INSIGHTS")
 
 # -----------------------
 # Data Loading & Caching
@@ -525,7 +141,7 @@ def agg_count_distinct(df: pd.DataFrame, group_by: list, agg_col: str, agg_name:
 def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None,
                        index_col: str | None = None, total_label: str = 'TOTAL'):
     if df is None or df.empty:
-        st.dataframe(df, width="stretch")
+        st.dataframe(df)
         return
 
     df_display = df.copy()
@@ -574,7 +190,7 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None,
                     lambda v: f"{float(v):,.2f}" if pd.notna(v) and str(v) != '' else ''
                 )
 
-    st.dataframe(appended, width="stretch")
+    st.dataframe(appended, use_container_width=True)
 
 # -----------------------
 # Helper plotting utils
@@ -628,7 +244,7 @@ def sales_global_overview(df):
         hole=0.65,
         value_is_millions=True
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     format_and_display(
         g[['SALES_CHANNEL_L1', 'NET_SALES']],
         numeric_cols=['NET_SALES'],
@@ -651,7 +267,7 @@ def sales_by_channel_l2(df):
         hole=0.65,
         value_is_millions=True
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     format_and_display(
         g[['SALES_CHANNEL_L2', 'NET_SALES']],
         numeric_cols=['NET_SALES'],
@@ -669,7 +285,7 @@ def sales_by_shift(df):
     labels = [f"{row['SHIFT']} ({row['PCT']:.1f}%)" for _, row in g.iterrows()]
     fig = go.Figure(data=[go.Pie(labels=labels, values=g['NET_SALES'], hole=0.65)])
     fig.update_layout(title="<b>Global Net Sales Distribution by SHIFT</b>")
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     format_and_display(
         g[['SHIFT', 'NET_SALES', 'PCT']],
         numeric_cols=['NET_SALES', 'PCT'],
@@ -716,7 +332,7 @@ def night_vs_day_ratio(df):
         xaxis_title="% of Store Sales",
         height=700
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     table = pivot_sorted.reset_index().rename(columns={'Night': 'Night_%', 'Day': 'Day_%'})
     format_and_display(
         table,
@@ -740,7 +356,7 @@ def global_day_vs_night(df):
     labels = [f"{r.Shift_Bucket} ({r.PCT:.1f}%)" for _, r in agg.iterrows()]
     fig = go.Figure(go.Pie(labels=labels, values=agg['NET_SALES'], hole=0.65))
     fig.update_layout(title="<b>Global Day vs Night Sales — Only Stores with NIGHT Shifts</b>")
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     format_and_display(
         agg,
         numeric_cols=['NET_SALES', 'PCT'],
@@ -813,7 +429,7 @@ def second_highest_channel_share(df):
         annotations=annotations,
         yaxis=dict(autorange='reversed')
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     format_and_display(
         second_sorted[['STORE_NAME', 'SECOND_CHANNEL', 'SECOND_PCT']],
         numeric_cols=['SECOND_PCT'],
@@ -879,7 +495,7 @@ def bottom_30_2nd_highest(df):
         annotations=annotations,
         yaxis=dict(autorange='reversed')
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     format_and_display(
         bottom_30,
         numeric_cols=['SECOND_PCT', 'TOP_PCT'],
@@ -1043,7 +659,7 @@ def customer_traffic_storewise(df):
         coloraxis_colorbar=dict(title="Receipt Count")
     )
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
     totals_df = totals.reset_index()
     totals_df.columns = ['STORE_NAME', 'Total_Receipts']
@@ -1162,7 +778,7 @@ def active_tills_during_day(df):
         coloraxis_colorbar=dict(title="Unique Tills")
     )
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
     # Summary table
     summary = max_vals.reset_index()
@@ -1302,7 +918,7 @@ def avg_customers_per_till(df):
         coloraxis_colorbar=dict(title="Customers / Till")
     )
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
     pivot_totals = pd.DataFrame({
         'STORE_NAME': ratio_matrix.index,
@@ -1468,7 +1084,7 @@ def store_customer_traffic_storewise(df):
         )]
     )
 
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 def customer_traffic_departmentwise(df):
     # Same engine as Store Customer Traffic Storewise
@@ -1648,7 +1264,7 @@ def cashiers_performance(df: pd.DataFrame):
             showactive=True
         )]
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
     # ===== 7) Display Final Table =====
     try:
@@ -1660,7 +1276,7 @@ def cashiers_performance(df: pd.DataFrame):
             total_label='TOTAL'
         )
     except Exception:
-        st.dataframe(store_summary, width="stretch")
+        st.dataframe(store_summary, use_container_width=True)
 
 
 def till_usage(df):
@@ -1693,7 +1309,7 @@ def till_usage(df):
         text_auto=True
     )
     fig.update_xaxes(side='top')
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     totals = pivot.sum(axis=1).reset_index()
     totals.columns = ['Till_Code', 'Total_Receipts']
     format_and_display(
@@ -1758,7 +1374,7 @@ def tax_compliance(df):
         title=f"Tax Compliance by Till — {branch}",
         height=max(400, 24 * len(pivot.index))
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     store_summary = d.groupby(
         ['STORE_NAME', 'Tax_Compliant'],
         as_index=False
@@ -1895,7 +1511,7 @@ def global_category_overview_sales(df):
         orientation='h',
         title="Top Categories by Net Sales"
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 def global_category_overview_baskets(df):
     st.header("Global Category Overview — Baskets")
@@ -1918,7 +1534,7 @@ def global_category_overview_baskets(df):
         orientation='h',
         title="Top Categories by Baskets"
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 def supplier_contribution(df):
     st.header("Supplier Contribution (Top suppliers by net sales)")
@@ -1941,7 +1557,7 @@ def supplier_contribution(df):
         orientation='h',
         title="Top Suppliers by Net Sales"
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 def category_overview(df):
     st.header("Category Overview")
@@ -2007,7 +1623,7 @@ def branch_comparison(df):
         title=f"Branch Comparison — {a} vs {b}"
     )
     fig.update_traces(textposition='outside')
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     st.subheader(f"{a} Top Items")
     format_and_display(
         topA,
@@ -2176,7 +1792,7 @@ def product_performance(df):
         final[col] = final[col].map('{:,.0f}'.format)
 
     st.subheader("Store Breakdown")
-    st.dataframe(final, width="stretch")
+    st.dataframe(final, use_container_width=True)
 
     # chart
     chart_df = per_store[['STORE_NAME','Only_Item_Baskets','With_Other_Items']].melt(
@@ -2197,7 +1813,7 @@ def product_performance(df):
         title=f"Stores — Basket Split (%) for {item_code} ({item_name})"
     )
     fig.update_layout(height=max(420, 22*len(chart_df['STORE_NAME'].unique())))
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 def global_loyalty_overview(df):
     st.header("Global Loyalty Overview")
@@ -2681,7 +2297,7 @@ def branch_pricing_overview(df):
     with st.expander("Show full receipt details (expand)"):
         st.dataframe(
             receipts_detail,
-            width="stretch"
+            use_container_width=True
         )
 
     try:
@@ -2772,7 +2388,7 @@ def branch_refunds_overview(df):
 # Main App
 # -----------------------
 def main():
-    st.title("The Story Behind the Numbers")
+    st.title("DailyDeck: The Story Behind the Numbers")
 
     raw_df = smart_load()
     if raw_df is None:
