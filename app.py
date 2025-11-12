@@ -7,6 +7,91 @@ from datetime import timedelta
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
+# =========================
+# Minimal Theme + Intro (UI-only, no logic changes)
+# =========================
+import streamlit as st
+
+def sd_min_theme():
+    st.markdown("""
+    <style>
+      :root{
+        --sd-green:#0FA34B; --sd-red:#E53935; --sd-ink:#0b1f10;
+      }
+      /* Subtle app background */
+      .stApp{
+        background:
+          radial-gradient(1100px 520px at 8% 12%, #eefdf3 0%, #f8fffb 45%, transparent 65%) no-repeat,
+          radial-gradient(900px 520px at 98% 10%, #fff1f1 0%, #fff7f7 45%, transparent 75%) no-repeat,
+          linear-gradient(120deg, rgba(15,163,75,.08), rgba(229,57,53,.08));
+        background-attachment: fixed;
+      }
+      /* Sidebar: red→white blend + tidy uploader */
+      [data-testid="stSidebar"]{
+        background: linear-gradient(180deg,
+                    rgba(229,57,53,0.12) 0%,
+                    rgba(255,255,255,0.94) 60%,
+                    #ffffff 100%);
+        border-right: 1px solid rgba(229,57,53,0.20);
+        backdrop-filter: blur(6px);
+      }
+      [data-testid="stSidebar"] .stFileUploader{
+        border: 1px dashed rgba(229,57,53,0.35);
+        border-radius: 12px; padding: 10px 12px;
+        background: rgba(255,255,255,0.7);
+        transition: border-color .2s ease, background .2s ease;
+      }
+      [data-testid="stSidebar"] .stFileUploader:hover{
+        border-color: var(--sd-red);
+        background: rgba(255,255,255,0.9);
+      }
+
+      /* Nice gradient title + compact subhead */
+      .sd-title{
+        font-size: 42px; font-weight: 900; margin: 0 0 4px 0;
+        background: linear-gradient(90deg, var(--sd-green), var(--sd-red));
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      }
+      .sd-sub{
+        font-size: 16px; font-weight: 700; color:#0f5132; margin: 0 0 10px;
+      }
+
+      /* Intro pill row */
+      .chip{display:inline-block;padding:6px 10px;margin:3px;border-radius:999px;
+            font-weight:800;font-size:12px}
+      .g{background:#E8F7EE;color:#0E6B3A;border:1px solid #CDEED9}
+      .r{background:#FDEBEC;color:#AA1E23;border:1px solid #F8C8CB}
+
+      /* Table/DataFrame subtle polish (safe) */
+      .stDataFrame, .stTable{
+        border-radius: 12px; overflow: hidden;
+        border: 1px solid #eef3ee; box-shadow: 0 6px 20px rgba(0,0,0,.05);
+      }
+
+      /* Slightly tighter top padding */
+      .block-container{ padding-top: 1.0rem; }
+    </style>
+    """, unsafe_allow_html=True)
+
+def sd_min_intro():
+    st.markdown("<div class='sd-title'>DailyDeck</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sd-sub'>Sales · Operations · Insights — Make Smart Decisions.</div>",
+                unsafe_allow_html=True)
+    st.markdown(
+        "<div>"
+        "<span class='chip g'>✔ Best Sellers</span>"
+        "<span class='chip g'>↑ Till Utilization</span>"
+        "<span class='chip r'>⚠ Price Spread</span>"
+        "<span class='chip r'>⏱ Bottlenecks</span>"
+        "</div>", unsafe_allow_html=True)
+
+# Apply theme once
+sd_min_theme()
+
+# Show a minimal intro only when no data is present (non-blocking, safe)
+_df = st.session_state.get("df")
+if _df is None or (hasattr(_df, "empty") and _df.empty):
+    sd_min_intro()
 
 
 
