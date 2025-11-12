@@ -8,65 +8,52 @@ from datetime import timedelta
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 
-# =========================
-# FULL-SCREEN UI SKIN (no Streamlit sidebar)
-# =========================
+# ======= CLEAN, DEFENSIVE UI SHELL (no Streamlit sidebar) =======
 import streamlit as st
 import pandas as pd
 import numpy as np
+from contextlib import suppress
 
-# 1) Hide Streamlit chrome + sidebar
+# Hide Streamlit chrome + sidebar
 st.markdown("""
 <style>
-/* Hide Streamlit header/footer/sidebar */
 #MainMenu, header, footer {visibility:hidden;}
 [data-testid="stSidebar"] {display:none;}
 .block-container {padding-top:0; padding-bottom:0; max-width:1600px;}
-/* App viewport */
 .app-viewport{height:100vh; display:grid; grid-template-rows:auto 1fr auto; overflow:hidden;}
 .topbar{display:flex; justify-content:center; align-items:center; padding:1.2rem 1.5rem;
         border-bottom:1px solid #eef1f6; background:#fff; position:relative;}
-.brand{ text-align:center;}
-.brand h1{ margin:0; font-size:1.9rem; color:#111827;}
-.brand p{ margin:.2rem 0 0; font-size:1rem; color:#d72638; font-weight:600;}
-.top-right{ position:absolute; right:1.2rem; top:1rem;}
+.brand{text-align:center;}
+.brand h1{margin:0; font-size:1.9rem; color:#111827;}
+.brand p{margin:.2rem 0 0; font-size:1rem; color:#d72638; font-weight:600;}
+.top-right{position:absolute; right:1.2rem; top:1rem;}
 .btn{display:inline-block; padding:.55rem 1rem; border-radius:10px; text-decoration:none;
      font-weight:700; border:2px solid transparent; transition:.15s; cursor:pointer}
 .btn-primary{background:#d72638; color:#fff;}
 .btn-outline{background:#fff; border-color:#16a34a; color:#16a34a;}
 .btn:hover{transform:translateY(-1px); filter:brightness(.98)}
-.layout{ display:grid; grid-template-columns:240px 1fr; height:100%;}
-.sidebar-green{ background:#e6f6ea; border-right:1px solid #c5e4cf; padding:1rem; overflow:auto;}
+.sidebar-green{ background:#e6f6ea; border:1px solid #c5e4cf; border-radius:12px; padding:1rem; }
 .sidebar-green h3{ margin:.2rem 0 1rem; color:#111827;}
-.side-ul{ list-style:none; margin:0; padding:0;}
-.side-ul > li{ margin-bottom:.7rem;}
-.side-ul a{ color:#0f5132; text-decoration:none; font-weight:600;}
-.side-ul a:hover{ text-decoration:underline;}
-.sub{ margin-top:.3rem; margin-left:1rem; display:none;}
-.active > .sub{ display:block;}
-.active > a{ color:#16a34a;}
-.hero{ position:relative; background:#f8fafc; display:flex; justify-content:center; align-items:center;}
-.hero-inner{ width:100%; max-width:1200px; padding:1.2rem; }
-.row{ display:flex; justify-content:center; align-items:center; gap:12px; flex-wrap:wrap;}
-.kpi{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem 1.2rem; min-width:200px; text-align:center; box-shadow:0 4px 10px rgba(0,0,0,0.05);}
+.hero{ background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:1.2rem; }
+.kpi{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem 1.2rem; text-align:center; box-shadow:0 4px 10px rgba(0,0,0,0.05);}
 .kpi-label{ font-size:.9rem; color:#6b7280;}
 .kpi-value{ font-size:1.5rem; font-weight:700; color:#111827;}
-.actions .btn{ min-width:160px; }
-.uploader{ display:flex; justify-content:center; align-items:center; gap:.6rem; background:rgba(255,255,255,.96); border:1px dashed #16a34a; border-radius:12px; padding:.6rem; margin-top:1rem;}
+.err{ background:#fff3cd; color:#8a6d3b; border:1px solid #ffeeba; padding:.6rem .8rem; border-radius:8px; margin:.5rem 0; font-size:.9rem;}
 .foot{ text-align:left; padding:.4rem 1rem; font-size:.8rem; background:#111827; color:#fff;}
-@media (max-width: 900px){ .layout{ grid-template-columns:1fr; } .sidebar-green{ display:none; } }
+/* make st.button look like red tiles on hero row */
+div[data-testid="column"] button[kind="secondary"] {border:2px solid #d72638;}
 </style>
 """, unsafe_allow_html=True)
 
-# 2) State (section + subsection)
-if "ui_section" not in st.session_state: st.session_state.ui_section = None      # 'sales' | 'ops' | 'insights'
+# ----- state -----
+if "ui_section" not in st.session_state: st.session_state.ui_section = None  # "sales"|"ops"|"insights"
 if "ui_sub" not in st.session_state: st.session_state.ui_sub = None
 
 def go(section=None, sub=None):
     if section is not None: st.session_state.ui_section = section
     if sub is not None: st.session_state.ui_sub = sub
 
-# 3) Safe KPI extractor (works even with no df)
+# ----- robust KPI pull (never crashes) -----
 def _safe_kpis(df: pd.DataFrame | None):
     if df is None or df.empty:
         return 0.0, 0.0, 0.0, 0
@@ -77,31 +64,30 @@ def _safe_kpis(df: pd.DataFrame | None):
         d["CUST_CODE"] = d["STORE_CODE"].astype(str)+"-"+d["TILL"].astype(str)+"-"+d["SESSION"].astype(str)+"-"+d["RCT"].astype(str)
     net = float(d.get("NET_SALES", pd.Series(dtype=float)).sum())
     baskets = float(d.get("CUST_CODE", pd.Series(dtype=str)).nunique() or 0)
-    try:
+    with suppress(Exception):
         items_per_rcpt = d.groupby("CUST_CODE")["ITEM_CODE"].nunique().mean()
-    except Exception:
-        items_per_rcpt = 0.0
+    if 'items_per_rcpt' not in locals() or pd.isna(items_per_rcpt): items_per_rcpt = 0.0
     if "Till_Code" in d.columns:
         active_tills = int(d["Till_Code"].nunique())
     elif all(x in d.columns for x in ["TILL","STORE_CODE"]):
         active_tills = int((d["TILL"].astype(str)+"-"+d["STORE_CODE"].astype(str)).nunique())
     else:
         active_tills = 0
-    return net/1_000_000, baskets/1_000, float(items_per_rcpt or 0.0), active_tills
+    return net/1_000_000, baskets/1_000, float(items_per_rcpt), active_tills
 
-# 4) Try to use your loaders if present (don’t crash if not)
-df = None
+# ----- load df using your existing helpers if present (but never crash) -----
+df, last_error = None, None
 try:
-    df = smart_load()
-    try:
+    if 'smart_load' in globals():
+        df = smart_load()
+    if df is not None and 'clean_and_derive' in globals():
         df = clean_and_derive(df)
-    except Exception:
-        pass
-except Exception:
-    pass
+except Exception as e:
+    last_error = e
+
 net_m, baskets_k, avg_items, tills = _safe_kpis(df)
 
-# 5) TOP BAR
+# ======= TOP BAR =======
 st.markdown('<div class="app-viewport">', unsafe_allow_html=True)
 st.markdown("""
 <div class="topbar">
@@ -109,81 +95,43 @@ st.markdown("""
     <h1>Quick Mart Limited</h1>
     <p>Let the data Speak</p>
   </div>
-  <div class="top-right">
-    <a class="btn btn-outline" href="#" id="btnHome">Home</a>
-  </div>
+  <div class="top-right"><a class="btn btn-outline" href="#" onclick="return false;">Home</a></div>
 </div>
 """, unsafe_allow_html=True)
 
-# 6) BODY: custom left rail + hero (no Streamlit sidebar used)
-st.markdown('<div class="layout">', unsafe_allow_html=True)
-
-# LEFT RAIL
-left, right = st.columns([240, 1], gap="small")
+# ======= BODY (LEFT RAIL + HERO) =======
+# IMPORTANT FIX: use weights, not pixels -> prevents blank page
+left, right = st.columns([1, 5], gap="large")
 
 with left:
-    st.markdown("""
-    <aside class="sidebar-green">
-      <h3>Sections</h3>
-      <ul class="side-ul">
-        <li class="{sales_active}"><a href="#" id="nav_sales">Sales Analytics</a>
-          <ul class="sub">
-            <li><a href="#" id="nav_sales_global">Global Overview</a></li>
-            <li><a href="#" id="nav_sales_channel">Channel Distribution</a></li>
-            <li><a href="#" id="nav_sales_store">Store Summary</a></li>
-          </ul>
-        </li>
-        <li class="{ops_active}"><a href="#" id="nav_ops">Operations</a>
-          <ul class="sub">
-            <li><a href="#" id="nav_ops_cashiers">Cashier Performance</a></li>
-            <li><a href="#" id="nav_ops_till">Till Usage</a></li>
-            <li><a href="#" id="nav_ops_traffic">Store Traffic</a></li>
-          </ul>
-        </li>
-        <li class="{ins_active}"><a href="#" id="nav_insights">Insights</a>
-          <ul class="sub">
-            <li><a href="#" id="nav_ins_baskets">Customer Baskets</a></li>
-            <li><a href="#" id="nav_ins_category">Category Performance</a></li>
-            <li><a href="#" id="nav_ins_supplier">Supplier Contribution</a></li>
-          </ul>
-        </li>
-      </ul>
-    </aside>
-    """.format(
-        sales_active="active" if st.session_state.ui_section=="sales" else "",
-        ops_active="active" if st.session_state.ui_section=="ops" else "",
-        ins_active="active" if st.session_state.ui_section=="insights" else ""
-    ), unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-green"><h3>Sections</h3>', unsafe_allow_html=True)
+    # simple nav (buttons styled by CSS above)
+    st.button("Sales Analytics", use_container_width=True, on_click=go, kwargs=dict(section="sales", sub=None))
+    st.button("Operations", use_container_width=True, on_click=go, kwargs=dict(section="ops", sub=None))
+    st.button("Insights", use_container_width=True, on_click=go, kwargs=dict(section="insights", sub=None))
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# RIGHT HERO
 with right:
-    st.markdown('<section class="hero"><div class="hero-inner">', unsafe_allow_html=True)
-
-    # KPI tiles
+    st.markdown('<div class="hero">', unsafe_allow_html=True)
     k1,k2,k3,k4 = st.columns(4)
     k1.markdown(f'<div class="kpi"><div class="kpi-label">Net Sales</div><div class="kpi-value">KSh {net_m:,.1f}M</div></div>', unsafe_allow_html=True)
     k2.markdown(f'<div class="kpi"><div class="kpi-label">Baskets</div><div class="kpi-value">{baskets_k:,.1f}K</div></div>', unsafe_allow_html=True)
     k3.markdown(f'<div class="kpi"><div class="kpi-label">Avg Items/Receipt</div><div class="kpi-value">{avg_items:,.1f}</div></div>', unsafe_allow_html=True)
     k4.markdown(f'<div class="kpi"><div class="kpi-label">Active Tills</div><div class="kpi-value">{tills:,}</div></div>', unsafe_allow_html=True)
 
-    # Three red buttons (no JS)
     c1,c2,c3 = st.columns(3)
     with c1:
-        if st.button("Sales Analytics", use_container_width=True):
-            go(section="sales", sub=None)
+        if st.button("Sales Analytics ▶", use_container_width=True): go("sales", None)
     with c2:
-        if st.button("Operations", use_container_width=True):
-            go(section="ops", sub=None)
+        if st.button("Operations ▶", use_container_width=True): go("ops", None)
     with c3:
-        if st.button("Insights", use_container_width=True):
-            go(section="insights", sub=None)
+        if st.button("Insights ▶", use_container_width=True): go("insights", None)
 
-    # Bottom uploader
-    up_col, btn_col = st.columns([4,1])
-    uploaded = up_col.file_uploader("Upload CSV", type=["csv"], label_visibility="collapsed", key="hero_csv2")
-    if btn_col.button("Upload CSV", use_container_width=True) and uploaded is not None:
+    # bottom uploader (kept minimal; works even if your sidebar uploader is removed)
+    u1,u2 = st.columns([4,1])
+    uploaded = u1.file_uploader("Upload CSV", type=["csv"], label_visibility="collapsed", key="hero_csv3")
+    if u2.button("Upload CSV", use_container_width=True) and uploaded is not None:
         try:
-            # Prefer your helper if present
             if 'load_uploaded_file' in globals():
                 df = load_uploaded_file(uploaded.getvalue())
             else:
@@ -194,64 +142,47 @@ with right:
             net_m, baskets_k, avg_items, tills = _safe_kpis(df)
             st.success("CSV uploaded.")
         except Exception as e:
-            st.error(f"Upload failed: {e}")
+            last_error = e
 
-    st.markdown('</div></section>', unsafe_allow_html=True)
+    # show any captured error as a small banner (prevents scary blank page)
+    if last_error is not None:
+        st.markdown(f'<div class="err">Startup warning: {last_error}</div>', unsafe_allow_html=True)
 
-st.markdown('</div>', unsafe_allow_html=True)  # end .layout
+    st.markdown('</div>', unsafe_allow_html=True)  # end hero
+
 st.markdown('<div class="foot">© 2025 Quick Mart Limited</div></div>', unsafe_allow_html=True)
 
-# 7) Router – call your existing functions as-is
+# ======= ROUTER: call your existing functions WITHOUT breaking the hero =======
 def render_page(section: str | None, sub: str | None, df: pd.DataFrame | None):
-    if df is None:
-        return  # Keep the landing hero visible without errors
+    if df is None:  # stay on hero if no data
+        return
+    try:
+        if section == "sales":
+            if sub is None or sub == "global_overview":
+                sales_global_overview(df)
+            elif sub == "channel_distribution":
+                sales_by_channel_l2(df)
+            elif sub == "store_summary":
+                stores_sales_summary(df)
+        elif section == "ops":
+            if sub is None or sub == "cashiers_performance":
+                cashiers_performance(df)
+            elif sub == "till_usage":
+                till_usage(df)
+            elif sub == "store_traffic":
+                customer_traffic_storewise(df)
+        elif section == "insights":
+            if sub is None or sub == "customer_baskets":
+                customer_baskets_overview(df)
+            elif sub == "category_performance":
+                global_category_overview_sales(df)
+            elif sub == "supplier_contribution":
+                global_category_overview_baskets(df)
+    except Exception as e:
+        st.markdown(f'<div class="err">Render error: {e}</div>', unsafe_allow_html=True)
 
-    # SALES
-    if section == "sales":
-        if sub in (None, "global"): 
-            try: sales_global_overview(df)
-            except: pass
-        if sub == "channel": 
-            try: sales_by_channel_l2(df)
-            except: pass
-        if sub == "store": 
-            try: stores_sales_summary(df)
-            except: pass
-
-    # OPERATIONS
-    elif section == "ops":
-        if sub in (None, "cashiers"):
-            try: cashiers_performance(df)
-            except: pass
-        if sub == "till":
-            try: till_usage(df)
-            except: pass
-        if sub == "traffic":
-            try: customer_traffic_storewise(df)
-            except: pass
-
-    # INSIGHTS
-    elif section == "insights":
-        if sub in (None, "baskets"):
-            try: customer_baskets_overview(df)
-            except: pass
-        if sub == "category":
-            try: global_category_overview_sales(df)
-            except: pass
-        if sub == "supplier":
-            try: global_category_overview_baskets(df)
-            except: pass
-
-# 8) Map link clicks (from left rail) to state using invisible buttons
-# (Streamlit can't detect <a> clicks, so we provide hidden buttons in same order)
-nav_cols = st.columns(1)  # container to hold actions invisibly
-with nav_cols[0]:
-    # Top-level
-    if st.session_state.get("clicked_nav_sales", False): go("sales", None)
-    if st.session_state.get("clicked_nav_ops", False): go("ops", None)
-    if st.session_state.get("clicked_nav_insights", False): go("insights", None)
-# Render the page if any section selected
 render_page(st.session_state.ui_section, st.session_state.ui_sub, df)
+# ======= END SHELL =======
 
 
 # -----------------------
