@@ -9,126 +9,54 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 
 # ===============================
-# ✨ Landing Page (No-Data State)
+# ✨ Landing Page (no-data state)
 # ===============================
 import streamlit as st
-import base64
 import streamlit.components.v1 as components
 
 def show_landing_if_no_data(df):
-    """Render a mind-blowing landing only when no data is loaded."""
-    if df is not None and not getattr(df, "empty", True):
-        return  # data exists → do nothing
+    """Show the cinematic landing only before data exists, then stop the app."""
+    if df is not None and hasattr(df, "empty") and (not df.empty):
+        return  # data exists → render the rest of the app
 
-    # ---------- Styles: gradient bg, animated blobs, glass cards ----------
     st.markdown("""
     <style>
-      /* Page background */
-      .stApp {
-        background: radial-gradient(1200px 600px at 20% 10%, #f2f7ff 0%, #ffffff 40%, #f7fbff 100%);
-      }
-      /* Center container */
-      .landing-wrap {
-        position: relative;
-        max-width: 1000px;
-        margin: 0 auto;
-        padding: 60px 24px 24px;
-        text-align: center;
-      }
-      h1.landing-title {
-        font-size: 56px;
-        line-height: 1.05;
-        margin: 0;
-        background: linear-gradient(90deg,#0A2647,#205295);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-weight: 900;
-      }
-      h2.landing-sub {
-        margin: 8px 0 24px;
-        color: #144272cc;
-        font-weight: 600;
-      }
-      .tagline {
-        color: #334155;
-        font-size: 18px;
-      }
-
-      /* Animated blobs (pure CSS) */
-      .blob {
-        position: absolute; border-radius: 50%;
-        filter: blur(40px); opacity: .25; z-index: 0;
-        animation: float 12s ease-in-out infinite;
-      }
-      .b1 { width: 380px; height: 380px; background: #5ea8ff; top: -40px; left: -80px; }
-      .b2 { width: 420px; height: 420px; background: #9cd2ff; bottom: -60px; right: -60px; animation-delay: 2s; }
-      @keyframes float {
-        0%,100% { transform: translateY(0) translateX(0) scale(1); }
-        50%     { transform: translateY(-18px) translateX(8px) scale(1.03); }
-      }
-
-      /* Glass panel */
-      .glass {
-        position: relative; z-index: 1;
-        margin: 28px auto 0;
-        background: rgba(255,255,255,0.55);
-        border: 1px solid rgba(144,160,183,0.25);
-        box-shadow: 0 10px 40px rgba(10,38,71,0.08);
-        backdrop-filter: blur(8px);
-        border-radius: 20px;
-        padding: 26px;
-        max-width: 860px;
-      }
-
-      /* Pulsing orb loader */
-      .orb {
-        width: 84px; height: 84px; margin: 18px auto 4px;
-        border-radius: 50%;
-        background: conic-gradient(from 180deg, #205295, #3aa0ff, #7cc8ff, #205295);
-        animation: spin 2.8s linear infinite, glow 2.2s ease-in-out infinite alternate;
-        box-shadow: 0 0 0 rgba(32,82,149,0.0);
-      }
-      .orb::after {
-        content:""; position:absolute; inset:8px; border-radius:50%;
-        background: radial-gradient(circle at 30% 30%, #ffffff 0%, #eaf4ff 35%, #cfe7ff 100%);
-      }
-      @keyframes spin { to { transform: rotate(360deg);} }
-      @keyframes glow { from { box-shadow: 0 0 0 rgba(32,82,149,0.0);} to { box-shadow: 0 12px 48px rgba(32,82,149,0.35);} }
-
-      /* Curiosity highlights */
-      .chips {
-        display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin:18px 0 2px;
-      }
-      .chip {
-        padding:8px 12px; border-radius:999px; font-size:13px; color:#0b2447;
-        background:#eef6ff; border:1px solid #dbeaff;
-      }
-
-      /* CTA row */
-      .cta { display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:18px; }
-      .cta .primary {
-        background:#205295; color:#fff; border:none; padding:12px 18px; border-radius:12px; font-weight:700;
-        box-shadow: 0 6px 20px rgba(32,82,149,0.25); transition:.2s;
-      }
-      .cta .primary:hover { transform: translateY(-1px); background:#144272; }
-      .cta .ghost {
-        background: transparent; border:1px dashed #20529588; color:#205295; padding:12px 18px; border-radius:12px; font-weight:700;
-      }
-
-      /* Skeleton bars (tease upcoming panels) */
-      .skeletons { display:grid; grid-template-columns: repeat(3,minmax(220px,1fr)); gap:14px; margin: 22px auto 4px; max-width: 860px;}
-      .sk {
-        height: 88px; border-radius: 16px; background: linear-gradient(90deg,#f2f7ff 0%,#e9f2ff 50%,#f2f7ff 100%);
-        animation: shimmer 1.6s infinite; border:1px solid #e7f0ff;
-      }
-      @keyframes shimmer { 0%{background-position:-200px 0} 100%{background-position:200px 0} }
-
-      /* Hide default "No default CSV" yellow box if present */
-      [data-testid="stNotification"] { display:none !important; }
+      .stApp { background: radial-gradient(1200px 600px at 20% 10%, #f2f7ff 0%, #ffffff 40%, #f7fbff 100%); }
+      .landing-wrap { position:relative; max-width:1000px; margin:0 auto; padding:72px 24px; text-align:center; }
+      h1.landing-title{ font-size:56px; line-height:1.05; margin:0; background:linear-gradient(90deg,#0A2647,#205295);
+        -webkit-background-clip:text; -webkit-text-fill-color:transparent; font-weight:900;}
+      h2.landing-sub{ margin:8px 0 24px; color:#144272cc; font-weight:600; }
+      .tagline{ color:#334155; font-size:18px; }
+      .blob{ position:absolute; border-radius:50%; filter:blur(40px); opacity:.25; z-index:0; animation:float 12s ease-in-out infinite;}
+      .b1{ width:380px; height:380px; background:#5ea8ff; top:-40px; left:-80px;}
+      .b2{ width:420px; height:420px; background:#9cd2ff; bottom:-60px; right:-60px; animation-delay:2s;}
+      @keyframes float{ 0%,100%{transform:translateY(0) translateX(0) scale(1);} 50%{transform:translateY(-18px) translateX(8px) scale(1.03);} }
+      .glass{ position:relative; z-index:1; margin:28px auto 0; background:rgba(255,255,255,.55);
+        border:1px solid rgba(144,160,183,.25); box-shadow:0 10px 40px rgba(10,38,71,.08); backdrop-filter:blur(8px);
+        border-radius:20px; padding:26px; max-width:860px;}
+      .orb{ width:84px; height:84px; margin:18px auto 4px; border-radius:50%;
+        background:conic-gradient(from 180deg,#205295,#3aa0ff,#7cc8ff,#205295);
+        animation:spin 2.8s linear infinite, glow 2.2s ease-in-out infinite alternate; box-shadow:0 0 0 rgba(32,82,149,0);}
+      .orb::after{ content:""; position:absolute; inset:8px; border-radius:50%;
+        background:radial-gradient(circle at 30% 30%,#fff 0%,#eaf4ff 35%,#cfe7ff 100%); }
+      @keyframes spin{ to{transform:rotate(360deg);} }
+      @keyframes glow{ from{box-shadow:0 0 0 rgba(32,82,149,0);} to{box-shadow:0 12px 48px rgba(32,82,149,.35);} }
+      .chips{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin:18px 0 2px; }
+      .chip{ padding:8px 12px; border-radius:999px; font-size:13px; color:#0b2447; background:#eef6ff; border:1px solid #dbeaff;}
+      .cta{ display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:18px;}
+      .cta a{ text-decoration:none; }
+      .cta .primary{ background:#205295; color:#fff; border:none; padding:12px 18px; border-radius:12px; font-weight:700;
+        box-shadow:0 6px 20px rgba(32,82,149,.25); transition:.2s; display:inline-block;}
+      .cta .primary:hover{ transform:translateY(-1px); background:#144272; }
+      .cta .ghost{ background:transparent; border:1px dashed #20529588; color:#205295; padding:12px 18px; border-radius:12px; font-weight:700; }
+      .skeletons{ display:grid; grid-template-columns:repeat(3,minmax(220px,1fr)); gap:14px; margin:22px auto 4px; max-width:860px;}
+      .sk{ height:88px; border-radius:16px; background:linear-gradient(90deg,#f2f7ff 0%,#e9f2ff 50%,#f2f7ff 100%);
+        animation:shimmer 1.6s infinite; border:1px solid #e7f0ff;}
+      @keyframes shimmer{ 0%{background-position:-200px 0} 100%{background-position:200px 0} }
+      [data-testid="stNotification"]{ display:none !important; }
     </style>
     """, unsafe_allow_html=True)
 
-    # ---------- Rotating curiosity (JS) ----------
     components.html("""
     <div class="landing-wrap">
       <div class="blob b1"></div>
@@ -142,7 +70,7 @@ def show_landing_if_no_data(df):
         <div class="orb"></div>
         <div style="color:#5b6b7c; font-size:14px; margin-top:4px;">Awaiting your dataset…</div>
 
-        <div class="chips" id="chips">
+        <div class="chips">
           <div class="chip">Top-X Items by Receipts</div>
           <div class="chip">Cashier Throughput</div>
           <div class="chip">Basket Affinity</div>
@@ -151,12 +79,8 @@ def show_landing_if_no_data(df):
         </div>
 
         <div class="cta">
-          <button class="primary" onclick="document.querySelector('input[type=file]').click()">
-            ⬆️ Upload CSV (1GB)
-          </button>
-          <button class="ghost" onclick="window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'})">
-            What will I see?
-          </button>
+          <span class="primary">⬆️ Use the uploader on the left</span>
+          <span class="ghost">What will I see?</span>
         </div>
       </div>
 
@@ -164,22 +88,9 @@ def show_landing_if_no_data(df):
         <div class="sk"></div><div class="sk"></div><div class="sk"></div>
       </div>
     </div>
-
-    <script>
-      // Rotate chip highlight to spark curiosity
-      const chips = document.querySelectorAll('.chip');
-      let i = 0;
-      setInterval(()=> {
-        chips.forEach(c=>c.style.filter='grayscale(0)');
-        chips[i].style.filter = 'grayscale(0) drop-shadow(0 2px 8px rgba(32,82,149,.25))';
-        i = (i+1) % chips.length;
-      }, 1400);
-    </script>
     """, height=620)
 
-    # Stop the rest of the app from rendering until data exists
-    st.stop()
-
+    st.stop()  # prevent any downstream code (dataframes/plots) from running
 
 # -----------------------
 # Data Loading & Caching
