@@ -2,7 +2,7 @@
 Landing page with in-page CSV upload, robust navigation and a Home tab for section pages.
 
 This file provides:
-- show_landing()           -> the landing snapshot with in-page uploader
+- show_landing()           -> the landing snapshot with in-page uploader (enhanced UI)
 - show_top_nav()           -> a compact horizontal nav bar (Home | Sales | Operations | Insights)
 - navigate_to(section, subsection=None) -> navigation helper (uses query-params to trigger rerun)
 - clear_uploaded_data()    -> clears session upload state
@@ -201,220 +201,198 @@ def show_top_nav():
         right.markdown("<div style='text-align:right;color:#666;'>No CSV loaded</div>", unsafe_allow_html=True)
 
 # -----------------------
-# Landing UI
+# Enhanced Landing UI
 # -----------------------
 def show_landing():
-    # CSS for compact layout
+    """
+    Enhanced landing: hero banner, metric cards, quick-tabs and CTAs.
+    Replaces the previous simpler landing with a more engaging layout.
+    """
+    # Small CSS tweaks for a richer look
     st.markdown(
         """
         <style>
-          .app-main .block-container { padding-left: 18px; padding-right: 18px; }
-          .landing-legend { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-          @media (max-width: 900px) {
-            .app-main .block-container { padding-left: 8px; padding-right: 8px; }
+          .hero {
+            background: linear-gradient(90deg, rgba(44,162,99,0.06) 0%, rgba(214,39,40,0.04) 100%);
+            padding:18px;
+            border-radius:12px;
+            margin-bottom:12px;
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:12px;
           }
+          .hero-title { font-size:32px; font-weight:800; margin:0; color:#1f2937; }
+          .hero-sub { color:#4b5563; margin-top:6px; }
+          .cta-btn {
+            background:#111827; color:white; padding:8px 14px; border-radius:8px; text-decoration:none;
+          }
+          .kpi-row { gap:12px; margin-bottom:8px; }
+          .muted { color:#6b7280; }
+          /* Make the left uploader area visually lighter */
+          .uploader-box .stFileUploader { border-radius:8px; }
         </style>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
-    # Header
+    # Top nav for landing (keeps user oriented)
+    show_top_nav()
+
+    # Hero area
+    df = st.session_state.get('df', None)
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
     st.markdown(
         f"""
-        <div style="
-            padding:22px;
-            border-radius:10px;
-            background:{ACCENT_BG};
-            margin-bottom:12px;
-            width:100%;
-        ">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
-                <div style="min-width:220px;">
-                    <h1 style="margin:0; padding:0;">DailyDeck — Snapshot</h1>
-                    <div style="color:#444; margin-top:6px;">
-                        A high-level preview of what's ahead: Sales, Operations and Insights.
-                    </div>
-                </div>
-                <div style="text-align:right; min-width:160px;">
-                    <div style="font-size:13px;color:#666">As of</div>
-                    <div style="font-weight:700;">{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</div>
-                </div>
+        <div class="hero">
+          <div style="min-width:320px;">
+            <div class="hero-title">DailyDeck — Snapshot</div>
+            <div class="hero-sub">The Story Behind the Numbers — concise highlights to act on today.</div>
+            <div style="margin-top:8px;" class="muted">As of {now_str}</div>
+          </div>
+          <div style="text-align:right; min-width:240px;">
+            <div style="margin-bottom:8px;">
+              <a class="cta-btn" href="javascript:window.location.reload();">Refresh Data</a>
             </div>
+            <div class="muted" style="font-size:13px;">Tip: upload CSV on the left to enable detailed views</div>
+          </div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    # In-page uploader
-    st.markdown("<div style='margin-bottom:6px;'><strong>Upload data (CSV) to run the app</strong></div>", unsafe_allow_html=True)
-    left, mid, right = st.columns([1, 2, 1])
+    # Two-column layout: left = uploader/quick info, right = snapshot
+    left_col, right_col = st.columns([0.8, 2])
 
-    with mid:
-        uploaded = st.file_uploader(
-            "Drag & drop a DAILY_POS_TRN_ITEMS CSV here or click to browse (max ~1GB).",
-            type=["csv"],
-            help="CSV with transaction rows - once uploaded the page will parse & remember it for this session."
-        )
-
+    # Left: uploader + quick links
+    with left_col:
+        st.markdown("<div class='uploader-box'>", unsafe_allow_html=True)
+        uploaded = st.file_uploader("Drag & drop DAILY_POS_TRN_ITEMS CSV", type=["csv"], help="CSV with transaction rows - once uploaded the page will parse & remember it for this session.")
         if uploaded is not None:
             raw_bytes = uploaded.getvalue()
-            with st.spinner("Parsing uploaded CSV..."):  
-                ok, err, raw_df, df = _process_uploaded_file_bytes(raw_bytes)
+            with st.spinner("Parsing uploaded CSV..."):
+                ok, err, raw_df, df_local = _process_uploaded_file_bytes(raw_bytes)
             if ok:
-                st.success("CSV uploaded and parsed — data available for the session.")
+                st.success("CSV parsed and stored in session")
             else:
                 st.error(err)
 
-        if st.session_state.get('data_uploaded', False):
-            st.markdown("<div style='margin-top:8px; padding:8px; border-radius:8px; background:#f6fff6;'>✅ Data loaded in session.</div>", unsafe_allow_html=True)
-            st.button("Clear uploaded data", on_click=clear_uploaded_data)
-        else:
-            st.info("No CSV uploaded. Upload here to enable the full app without the sidebar uploader.")
+        # Quick actions
+        st.markdown("---")
+        st.write("Quick actions")
+        col_a, col_b = st.columns(2)
+        if col_a.button("🏠 Home", key="quick_home"):
+            navigate_to("LANDING")
+        if col_b.button("🛒 Sales", key="quick_sales"):
+            navigate_to("SALES")
+        if st.session_state.get("data_uploaded", False):
+            if st.button("Clear uploaded data", key="clear_upload_small"):
+                clear_uploaded_data()
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    # Snapshot columns
-    col_sales, col_ops, col_insights = st.columns([1.1, 1, 1])
-
-    # Sales
-    with col_sales:
-        st.markdown("<h3 style='margin-bottom:6px;'>🛒 Sales</h3>", unsafe_allow_html=True)
-        df = st.session_state.get('df', None)
+    # Right: lively snapshot
+    with right_col:
+        # Prepare simple KPIs from session df
         if df is None or df.empty:
             total_sales = 0.0
-            daily_series = pd.Series([0])
-            sales_growth = 0.0
-            top_channel = "N/A"
+            avg_basket = 0.0
+            peak_tills = 0
+            loyalty_contacts = 0
         else:
             total_sales = _safe_sum(df, "NET_SALES")
-            if "TRN_DATE" in df.columns:
-                s = df.groupby(df["TRN_DATE"].dt.date)["NET_SALES"].sum().sort_index()
-                daily_series = s.tail(30)
-                if len(daily_series) < 2:
-                    daily_series = s
-            else:
-                daily_series = pd.Series([0])
+            avg_basket = _safe_sum(df, "NET_SALES") / max(1, df["CUST_CODE"].nunique()) if "CUST_CODE" in df.columns else 0
             try:
-                if len(daily_series) >= 2:
-                    last = float(daily_series.iloc[-1])
-                    prev = float(daily_series.iloc[-2]) if len(daily_series) >= 2 else 0.0
-                    sales_growth = (last - prev) / (prev if prev != 0 else 1) * 100
-                else:
-                    sales_growth = 0.0
-            except Exception:
-                sales_growth = 0.0
-            try:
-                top_channel = df.groupby("SALES_CHANNEL_L1", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).iloc[0]["SALES_CHANNEL_L1"]
-            except Exception:
-                top_channel = "N/A"
-
-        _kpi_card("Total Net Sales (KSh)", f"{total_sales:,.0f}", delta=sales_growth, icon="💰", color=RED)
-        st.markdown("<div style='margin-top:8px;'>Sales trend (recent)</div>", unsafe_allow_html=True)
-        fig_spark = _sparkline_fig(daily_series if not getattr(daily_series, "empty", True) else pd.Series([0]), RED)
-        st.plotly_chart(fig_spark, width="stretch")
-        st.markdown(f"<div style='margin-top:6px;color:#444'><b>Top Channel:</b> {top_channel}</div>", unsafe_allow_html=True)
-
-        st.button("Go to Sales", on_click=lambda: navigate_to("SALES"))
-
-    # Operations
-    with col_ops:
-        st.markdown("<h3 style='margin-bottom:6px;'>⚙️ Operations</h3>", unsafe_allow_html=True)
-        df = st.session_state.get('df', None)
-        if df is None or df.empty:
-            peak_tills = 0
-            avg_customers_per_till = 0
-            top_store_till = "N/A"
-        else:
-            try:
-                if "Till_Code" not in df.columns and all(x in df.columns for x in ["TILL","STORE_CODE"]):
-                    df["Till_Code"] = df["TILL"].astype(str) + "-" + df["STORE_CODE"].astype(str)
-                if "TIME_ONLY" not in df.columns and "TRN_DATE" in df.columns:
-                    df["TIME_ONLY"] = df["TRN_DATE"].dt.floor("30min").dt.time
-                till_counts = df.groupby(["STORE_NAME", "TIME_ONLY"])["Till_Code"].nunique().groupby(level=0).max()
-                peak_tills = int(till_counts.max()) if not till_counts.empty else 0
-                receipts = df["CUST_CODE"].nunique() if "CUST_CODE" in df.columns else 0
-                tills = df["Till_Code"].nunique() if "Till_Code" in df.columns else 1
-                avg_customers_per_till = receipts / (tills if tills > 0 else 1)
-                top_store_till = till_counts.idxmax() if not till_counts.empty else "N/A"
+                peak_tills = int(df["Till_Code"].nunique()) if "Till_Code" in df.columns else 0
             except Exception:
                 peak_tills = 0
-                avg_customers_per_till = 0
-                top_store_till = "N/A"
+            loyalty_contacts = int(df["LOYALTY_CUSTOMER_CODE"].replace({"nan":"", "NaN":""}).astype(str).str.strip().astype(bool).sum()) if "LOYALTY_CUSTOMER_CODE" in df.columns else 0
 
-        _kpi_card("Peak Active Tills (store)", f"{peak_tills}", delta=None, icon="🧾", color=GREEN)
-        st.markdown(f"<div style='margin-top:8px;'>Avg customers / till: <b>{avg_customers_per_till:.1f}</b></div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='margin-top:6px;color:#444'>Top store (by peak tills): <b>{top_store_till}</b></div>", unsafe_allow_html=True)
+        # KPI cards row (uses your _kpi_card helper)
+        k1, k2, k3, k4 = st.columns([1,1,1,1], gap="small")
+        with k1:
+            _kpi_card("Total Net Sales (KSh)", f"{total_sales:,.0f}", delta=None, icon="💰", color=RED)
+        with k2:
+            _kpi_card("Avg Basket (KSh)", f"{avg_basket:,.0f}", delta=None, icon="🧾", color="#0b63ce")
+        with k3:
+            _kpi_card("Peak Active Tills", f"{peak_tills}", delta=None, icon="⚙️", color=GREEN)
+        with k4:
+            _kpi_card("Loyalty Contacts", f"{loyalty_contacts}", delta=None, icon="⭐", color="#b36b00")
 
-        if df is not None and not df.empty and "STORE_NAME" in df.columns and "NET_SALES" in df.columns:
-            try:
-                top_stores = df.groupby("STORE_NAME", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(5)
-                fig2 = px.bar(top_stores[::-1], x="NET_SALES", y="STORE_NAME", orientation="h", color_discrete_sequence=[GREEN])
-                fig2.update_layout(margin=dict(l=4, r=4, t=20, b=4), height=200, showlegend=False)
-                st.plotly_chart(fig2, width="stretch")
-            except Exception:
-                pass
+        st.markdown("")
 
-        st.button("Go to Operations", on_click=lambda: navigate_to("OPERATIONS"))
+        # Tabs to surface quick insights (sparkline + top categories + alerts)
+        tab_overview, tab_top_skus, tab_alerts = st.tabs(["Overview", "Top Categories", "Signals & Alerts"])
 
-    # Insights
-    with col_insights:
-        st.markdown("<h3 style='margin-bottom:6px;'>🔎 Insights</h3>", unsafe_allow_html=True)
-        df = st.session_state.get('df', None)
-        if df is None or df.empty:
-            multi_price_sku_days = 0
-            loyalty_customers = 0
-            top_category = "N/A"
-        else:
-            try:
-                d = df.copy()
-                if "TRN_DATE" in d.columns:
-                    d["DATE"] = d["TRN_DATE"].dt.date
-                if "SP_PRE_VAT" in d.columns and "ITEM_CODE" in d.columns and "DATE" in d.columns:
-                    grp = d.groupby(["STORE_NAME","DATE","ITEM_CODE"], as_index=False)["SP_PRE_VAT"].nunique()
-                    multi_price_sku_days = int((grp["SP_PRE_VAT"] > 1).sum())
-                else:
-                    multi_price_sku_days = 0
-            except Exception:
-                multi_price_sku_days = 0
-            try:
-                loyalty_customers = int(df["LOYALTY_CUSTOMER_CODE"].replace({"nan": "", "NaN": ""}).astype(str).str.strip().astype(bool).sum()) if "LOYALTY_CUSTOMER_CODE" in df.columns else 0
-            except Exception:
-                loyalty_customers = 0
-            try:
-                top_category = df.groupby("CATEGORY", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).iloc[0]["CATEGORY"]
-            except Exception:
-                top_category = "N/A"
+        with tab_overview:
+            # Sparkline of last 30 days
+            if df is None or df.empty or "TRN_DATE" not in df.columns:
+                st.info("No sales time series available — upload CSV for trends.")
+            else:
+                s = df.groupby(df["TRN_DATE"].dt.date)["NET_SALES"].sum().sort_index()
+                recent = s.tail(30)
+                fig = _sparkline_fig(recent, RED)
+                fig.update_layout(height=120, margin=dict(t=10,b=10,l=10,r=10))
+                st.plotly_chart(fig, width="stretch")
 
-        _kpi_card("Multi-priced SKU days", f"{multi_price_sku_days}", delta=None, icon="⚠️", color="#6a2c2c")
-        st.markdown(f"<div style='margin-top:8px;color:#444'>Loyalty contacts today: <b>{loyalty_customers}</b></div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='margin-top:6px;color:#444'>Top category (net sales): <b>{top_category}</b></div>", unsafe_allow_html=True)
+                # Small bar for top channels
+                try:
+                    top_channel_tbl = df.groupby("SALES_CHANNEL_L1", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(5)
+                    fig2 = px.bar(top_channel_tbl[::-1], x="NET_SALES", y="SALES_CHANNEL_L1", orientation="h", color_discrete_sequence=[GREEN])
+                    fig2.update_layout(height=240, margin=dict(t=8,b=8,l=8,r=8), showlegend=False)
+                    st.plotly_chart(fig2, width="stretch")
+                except Exception:
+                    pass
 
-        if df is not None and not df.empty and "CATEGORY" in df.columns and "NET_SALES" in df.columns:
-            try:
-                cat = df.groupby("CATEGORY", as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(6)
-                others = max(0, _safe_sum(df, "NET_SALES") - cat["NET_SALES"].sum())
-                if others > 0:
-                    cat = pd.concat([cat, pd.DataFrame([{"CATEGORY": "Others", "NET_SALES": others}])], ignore_index=True)
-                fig3 = px.pie(cat, names="CATEGORY", values="NET_SALES", hole=0.6,
-                              color_discrete_sequence=[RED, GREEN, "#7f7f7f", "#ff7f0e", "#9467bd", "#8c564b"])
-                fig3.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=230, showlegend=True)
-                st.plotly_chart(fig3, width="stretch")
-            except Exception:
-                pass
+        with tab_top_skus:
+            if df is None or df.empty:
+                st.info("No data for SKU analysis.")
+            else:
+                sku_top = df.groupby(["ITEM_CODE", "ITEM_NAME"], as_index=False)["NET_SALES"].sum().sort_values("NET_SALES", ascending=False).head(10)
+                sku_top.insert(0, "#", range(1, len(sku_top)+1))
+                sku_top_display = sku_top.rename(columns={"NET_SALES":"NET_SALES_KSh"})
+                format_and_display(sku_top_display[["#", "ITEM_CODE", "ITEM_NAME", "NET_SALES_KSh"]], numeric_cols=["NET_SALES_KSh"], index_col="ITEM_CODE")
 
-        st.button("Go to Insights", on_click=lambda: navigate_to("INSIGHTS"))
+        with tab_alerts:
+            # Very small rule-based alerts (customize thresholds)
+            alerts = []
+            if df is not None and not df.empty:
+                # Example alert: drop vs yesterday > 20%
+                try:
+                    s2 = df.groupby(df["TRN_DATE"].dt.date)["NET_SALES"].sum().sort_index()
+                    if len(s2) >= 3:
+                        last, prev = float(s2.iloc[-1]), float(s2.iloc[-2])
+                        pct_change = (last - prev) / (prev if prev != 0 else 1) * 100
+                        if pct_change < -20:
+                            alerts.append(("Sales drop >20% vs previous day", f"{pct_change:.1f}%", "⚠️"))
+                except Exception:
+                    pass
+                # Example alert: many multi-price SKUs
+                try:
+                    dtmp = df.copy()
+                    dtmp["DATE"] = dtmp["TRN_DATE"].dt.date
+                    grp = dtmp.groupby(["DATE", "ITEM_CODE"])["SP_PRE_VAT"].nunique().reset_index(name="num_prices")
+                    multi_days = (grp["num_prices"] > 1).sum()
+                    if multi_days > 10:
+                        alerts.append((f"Multi-priced SKUs today: {multi_days}", "Investigate pricing", "🔎"))
+                except Exception:
+                    pass
 
-    # Footer legend
-    st.markdown(
-        """
-        <div class="landing-legend" style="margin-top:16px;">
-            <div style="padding:10px 14px; border-radius:8px; background:rgba(44,160,44,0.06); color:#2ca02c;">● Green = Positive / Healthy</div>
-            <div style="padding:10px 14px; border-radius:8px; background:rgba(214,39,40,0.06); color:#d62728;">● Red = Attention / Degraded</div>
-            <div style="padding:10px 14px; border-radius:8px; background:#fff; color:#444;">Use the buttons above to jump to sections (subsections supported)</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            if not alerts:
+                st.success("No immediate alerts. Data looks normal (or upload required).")
+            else:
+                for title, msg, ico in alerts:
+                    st.warning(f"{ico} {title} — {msg}")
+
+        # CTAs at bottom of right column
+        st.markdown("---")
+        c1, c2, c3 = st.columns([1,1,1])
+        if c1.button("Explore Sales", key="landing_sales"):
+            navigate_to("SALES")
+        if c2.button("Explore Ops", key="landing_ops"):
+            navigate_to("OPERATIONS")
+        if c3.button("Explore Insights", key="landing_ins"):
+            navigate_to("INSIGHTS")
 
 # -----------------------
 # Data Loading & Caching
@@ -547,7 +525,7 @@ def agg_count_distinct(df: pd.DataFrame, group_by: list, agg_col: str, agg_name:
 def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None,
                        index_col: str | None = None, total_label: str = 'TOTAL'):
     if df is None or df.empty:
-        st.dataframe(df)
+        st.dataframe(df, width="stretch")
         return
 
     df_display = df.copy()
