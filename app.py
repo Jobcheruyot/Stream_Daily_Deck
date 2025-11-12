@@ -10,149 +10,163 @@ from datetime import timedelta
 import streamlit as st
 import pandas as pd
 
-# -------------------------
-# Page config
-# -------------------------
-st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
-
-# --------------------------------------
-# Landing page (shows only before upload)
-# --------------------------------------
+import streamlit as st
 import streamlit.components.v1 as components
 
-def render_landing():
-    # Hide any sidebar alerts like "No default CSV..."
+def render_landing_rg():
+    # Sidebar polish + hide yellow warning
     st.markdown("""
     <style>
+      [data-testid="stSidebar"] { background: #f7f9ff; border-right: 1px solid #eef1f4; }
       [data-testid="stSidebar"] [role="alert"] { display:none !important; }
-      .stApp { background: radial-gradient(1200px 600px at 20% 10%, #f2f7ff 0%, #ffffff 40%, #f7fbff 100%); }
-      .landing-wrap { position:relative; max-width:1000px; margin:0 auto; padding:72px 24px; text-align:center; }
-      h1.landing-title{ font-size:56px; line-height:1.05; margin:0; background:linear-gradient(90deg,#0A2647,#205295);
-        -webkit-background-clip:text; -webkit-text-fill-color:transparent; font-weight:900;}
-      h2.landing-sub{ margin:8px 0 24px; color:#144272cc; font-weight:600; }
-      .tagline{ color:#334155; font-size:18px; }
-      .blob{ position:absolute; border-radius:50%; filter:blur(40px); opacity:.25; z-index:0; animation:float 12s ease-in-out infinite;}
-      .b1{ width:380px; height:380px; background:#5ea8ff; top:-40px; left:-80px;}
-      .b2{ width:420px; height:420px; background:#9cd2ff; bottom:-60px; right:-60px; animation-delay:2s;}
-      @keyframes float{ 0%,100%{transform:translateY(0) translateX(0) scale(1);} 50%{transform:translateY(-18px) translateX(8px) scale(1.03);} }
-      .glass{ position:relative; z-index:1; margin:28px auto 0; background:rgba(255,255,255,.55);
-        border:1px solid rgba(144,160,183,.25); box-shadow:0 10px 40px rgba(10,38,71,.08); backdrop-filter:blur(8px);
-        border-radius:20px; padding:26px; max-width:860px;}
-      .orb{ width:84px; height:84px; margin:18px auto 4px; border-radius:50%;
-        background:conic-gradient(from 180deg,#205295,#3aa0ff,#7cc8ff,#205295);
-        animation:spin 2.8s linear infinite, glow 2.2s ease-in-out infinite alternate; box-shadow:0 0 0 rgba(32,82,149,0);}
-      .orb::after{ content:""; position:absolute; inset:8px; border-radius:50%;
-        background:radial-gradient(circle at 30% 30%,#fff 0%,#eaf4ff 35%,#cfe7ff 100%); }
-      @keyframes spin{ to{transform:rotate(360deg);} }
-      @keyframes glow{ from{box-shadow:0 0 0 rgba(32,82,149,0);} to{box-shadow:0 12px 48px rgba(32,82,149,.35);} }
-      .chips{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin:18px 0 2px; }
-      .chip{ padding:8px 12px; border-radius:999px; font-size:13px; color:#0b2447; background:#eef6ff; border:1px solid #dbeaff;}
-      .cta{ display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:18px;}
-      .cta .primary{ background:#205295; color:#fff; border:none; padding:12px 18px; border-radius:12px; font-weight:700;
-        box-shadow:0 6px 20px rgba(32,82,149,.25); transition:.2s; display:inline-block;}
-      .cta .primary:hover{ transform:translateY(-1px); background:#144272; }
-      .skeletons{ display:grid; grid-template-columns:repeat(3,minmax(220px,1fr)); gap:14px; margin:22px auto 4px; max-width:860px;}
-      .sk{ height:88px; border-radius:16px; background:linear-gradient(90deg,#f2f7ff 0%,#e9f2ff 50%,#f2f7ff 100%); animation:shimmer 1.6s infinite; border:1px solid #e7f0ff;}
-      @keyframes shimmer{ 0%{background-position:-200px 0} 100%{background-position:200px 0} }
     </style>
     """, unsafe_allow_html=True)
 
+    # --- Page CSS ---
+    st.markdown("""
+    <style>
+      .stApp{
+        background: linear-gradient(135deg,#0FA34B 0%,#10B15A 28%,#F84E4E 100%);
+        background-attachment: fixed;
+      }
+      .landing {max-width:1150px; margin:0 auto; padding:64px 24px; color:#071d10;}
+      .hero {
+        background: rgba(255,255,255,.88);
+        border:1px solid rgba(255,255,255,.6);
+        box-shadow: 0 12px 50px rgba(0,0,0,.10);
+        border-radius: 24px;
+        padding: 36px;
+        position: relative;
+        overflow:hidden;
+      }
+      /* animated gradient ribbon */
+      .hero::before{
+        content:""; position:absolute; inset:-2px -2px auto -2px; height:8px; border-radius:24px 24px 0 0;
+        background: linear-gradient(90deg,#E53935,#43A047,#E53935,#43A047);
+        background-size: 300% 100%; animation: move 5s linear infinite;
+      }
+      @keyframes move { 0%{background-position:0% 50%} 100%{background-position:100% 50%} }
+
+      .title{font-size:56px; line-height:1.05; margin:0; font-weight:900; color:#0b1f10;}
+      .subtitle{font-size:24px; margin:8px 0 18px; font-weight:700; color:#0f5132;}
+      .tag{font-size:17px; color:#1a3b26;}
+      .cta-row{display:flex; gap:12px; flex-wrap:wrap; margin-top:18px;}
+      .btn{
+        display:inline-block; padding:12px 18px; border-radius:14px; font-weight:800;
+        letter-spacing:.2px; text-decoration:none; transition:.2s;
+      }
+      .btn.primary{ background:#E53935; color:#fff; box-shadow:0 10px 30px rgba(229,57,53,.35);}
+      .btn.primary:hover{ transform:translateY(-1px); filter:saturate(1.1);}
+      .btn.ghost{ border:2px dashed #0FA34B; color:#0A7A39; background: rgba(15,163,75,.08);}
+      .btn.ghost:hover{ background: rgba(15,163,75,.14);}
+
+      /* info chips */
+      .chips{display:flex; flex-wrap:wrap; gap:8px; margin:18px 0 10px;}
+      .chip{
+        background:#fff; border:1px solid #e6f2ea; color:#0E4F2B; padding:8px 12px; border-radius:999px;
+        font-size:13px; font-weight:700;
+      }
+
+      /* gallery cards */
+      .gallery{display:grid; grid-template-columns:repeat(3, minmax(220px,1fr)); gap:16px; margin-top:20px;}
+      .card{
+        perspective: 1200px;
+      }
+      .card-inner{
+        background: linear-gradient(180deg, #ffffff 0%, #f7fff9 100%);
+        border:1px solid #e8f3ec; border-radius:20px; overflow:hidden; transform-style:preserve-3d;
+        transition: transform .25s ease, box-shadow .25s ease;
+        box-shadow:0 10px 25px rgba(0,0,0,.08);
+      }
+      .card:hover .card-inner{ transform: translateY(-4px) rotateX(2deg) rotateY(-2deg);
+        box-shadow:0 18px 45px rgba(0,0,0,.18); }
+      .card img{ width:100%; height:160px; object-fit:cover; display:block;}
+      .card h4{ margin:12px 14px 4px; font-size:16px; color:#093218;}
+      .card p{ margin:0 14px 16px; font-size:13px; color:#285d3d;}
+
+      /* bottom skeletons */
+      .skeletons{display:grid; grid-template-columns:repeat(3,minmax(220px,1fr)); gap:14px; margin: 22px 0 4px;}
+      .sk{ height:84px; border-radius:16px; background:
+        linear-gradient(90deg, #f6faf7 0%, #eef7f1 50%, #f6faf7 100%);
+        animation: shimmer 1.4s infinite; border:1px solid #e2efe7; }
+      @keyframes shimmer{ 0%{background-position:-200px 0} 100%{background-position:200px 0} }
+
+      /* faint dots overlay */
+      .dots{ position:absolute; inset:0; pointer-events:none;
+        background-image: radial-gradient(rgba(0,0,0,.06) 1px, transparent 1px);
+        background-size: 18px 18px; mix-blend-mode: overlay; opacity:.35; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # --- Page HTML + a tiny tilt JS (safe) ---
     components.html("""
-    <div class="landing-wrap">
-      <div class="blob b1"></div>
-      <div class="blob b2"></div>
-
-      <h1 class="landing-title">DailyDeck</h1>
-      <h2 class="landing-sub">The Story Behind the Numbers</h2>
-      <p class="tagline">Unveil patterns, decode store rhythms, and let your data talk.</p>
-
-      <div class="glass">
-        <div class="orb"></div>
-        <div style="color:#5b6b7c; font-size:14px; margin-top:4px;">Awaiting your dataset…</div>
+    <div class="landing">
+      <div class="hero">
+        <div class="dots"></div>
+        <h1 class="title">DailyDeck</h1>
+        <div class="subtitle">The Story Behind the Numbers</div>
+        <div class="tag">Unveil patterns, decode store rhythms, and let your data talk.</div>
 
         <div class="chips">
-          <div class="chip">Top-X Items by Receipts</div>
-          <div class="chip">Cashier Throughput</div>
-          <div class="chip">Basket Affinity</div>
-          <div class="chip">Shift Imbalances</div>
-          <div class="chip">Tax Compliance</div>
+          <span class="chip">Top-X Items (by Receipts)</span>
+          <span class="chip">Cashier Throughput</span>
+          <span class="chip">Basket Affinity</span>
+          <span class="chip">Shift Imbalances</span>
+          <span class="chip">Tax Compliance</span>
         </div>
 
-        <div class="cta">
-          <span class="primary">⬆️ Upload your CSV on the left</span>
-        </div>
-      </div>
+        <div style="color:#0f5132; margin:8px 0 0;">Awaiting your dataset…</div>
 
-      <div class="skeletons">
-        <div class="sk"></div><div class="sk"></div><div class="sk"></div>
+        <div class="cta-row">
+          <span class="btn primary">⬆ Upload your CSV on the left</span>
+          <span class="btn ghost">Live insights render instantly</span>
+        </div>
+
+        <div class="gallery">
+          <div class="card">
+            <div class="card-inner">
+              <img src="https://images.unsplash.com/photo-1542831371-29b0f74f9713?q=80&w=1200&auto=format&fit=crop" alt="POS & receipts">
+              <h4>POS Receipts</h4>
+              <p>Decode what shoppers really buy—by time, till & cashier.</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-inner">
+              <img src="https://images.unsplash.com/photo-1515165562835-c3b8b0b1a9a7?q=80&w=1200&auto=format&fit=crop" alt="Basket">
+              <h4>Basket Affinity</h4>
+              <p>Find combos that move together & tag tactical promos.</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-inner">
+              <img src="https://images.unsplash.com/photo-1519337265831-281ec6cc8514?q=80&w=1200&auto=format&fit=crop" alt="Shifts">
+              <h4>Shifts & Channels</h4>
+              <p>Spot day vs night imbalances and channel skews.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="skeletons">
+          <div class="sk"></div><div class="sk"></div><div class="sk"></div>
+        </div>
       </div>
     </div>
-    """, height=620)
 
-# ---------------
-# Helpers
-# ---------------
-def show_preview_safe(df, rows=50):
-    """Arrow-safe preview that won’t crash on mixed dtypes."""
-    try:
-        st.dataframe(df.head(rows), width="stretch", height=360)
-    except Exception:
-        df2 = df.copy()
-        for c in df2.columns:
-            if df2[c].dtype == "object":
-                df2[c] = df2[c].astype("string")
-        st.dataframe(df2.head(rows), width="stretch", height=360)
-
-# -------------------------------------------------------
-# 🔹 Sidebar uploader FIRST (nothing else should render)
-# -------------------------------------------------------
-uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=["csv"])
-
-# Hide default yellow sidebar warning to keep landing clean
-st.markdown("""
-<style>
-  [data-testid="stSidebar"] [role="alert"] { display:none !important; }
-</style>
-""", unsafe_allow_html=True)
-
-# -----------------------
-# LANDING GATE
-# -----------------------
-if uploaded is None and "df_ready" not in st.session_state:
-    render_landing()
-    st.stop()
-
-# -----------------------
-# Load data (once per session)
-# -----------------------
-if uploaded is not None and "df_ready" not in st.session_state:
-    df = pd.read_csv(uploaded, on_bad_lines="skip", low_memory=False)
-    st.session_state.df = df
-    st.session_state.df_ready = True
-
-df = st.session_state.get("df", None)
-
-# -----------------------
-# MAIN APP (after data)
-# -----------------------
-st.markdown("<h1>DailyDeck: The Story Behind the Numbers</h1>", unsafe_allow_html=True)
-
-# (Optional) quick confirmation + preview
-if df is not None:
-    st.caption("✅ Data loaded.")
-    with st.expander("Preview first 50 rows", expanded=False):
-        show_preview_safe(df, rows=50)
-
-# ======================================================
-# 🔻 YOUR APP GOES HERE — keep your existing sections
-#    (Sales, Operations, Insights, GPT, etc.)
-# ======================================================
-# e.g.
-# sales_overview(df)
-# cashiers_performance(df)
-# gpt_insights_panel(df)
-
-
+    <script>
+      // subtle 3D tilt on cards
+      document.querySelectorAll('.card').forEach(card=>{
+        const inner = card.querySelector('.card-inner');
+        card.addEventListener('mousemove', e=>{
+          const r = card.getBoundingClientRect();
+          const x = e.clientX - r.left, y = e.clientY - r.top;
+          const rx = ((y/r.height)-0.5)*6;
+          const ry = ((x/r.width)-0.5)*-6;
+          inner.style.transform = `translateY(-4px) rotateX(${rx}deg) rotateY(${ry}deg)`;
+        });
+        card.addEventListener('mouseleave', ()=> inner.style.transform = '');
+      });
+    </script>
+    """, height=720)
 
 # -----------------------
 # Data Loading & Caching
