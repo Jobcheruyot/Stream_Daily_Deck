@@ -5,19 +5,26 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 
-st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
-# Add the following at the very top of your Streamlit script, AFTER st.set_page_config
+# app.py  — landing-first pattern (clean + reliable)
 
-# ======================================
-# ✨ Landing Page (Shown Before Upload)
-# ======================================
 import streamlit as st
+import pandas as pd
+
+# -------------------------
+# Page config
+# -------------------------
+st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
+
+# --------------------------------------
+# Landing page (shows only before upload)
+# --------------------------------------
 import streamlit.components.v1 as components
 
-def show_landing_page():
-    """Always visible when no data is uploaded yet."""
+def render_landing():
+    # Hide any sidebar alerts like "No default CSV..."
     st.markdown("""
     <style>
+      [data-testid="stSidebar"] [role="alert"] { display:none !important; }
       .stApp { background: radial-gradient(1200px 600px at 20% 10%, #f2f7ff 0%, #ffffff 40%, #f7fbff 100%); }
       .landing-wrap { position:relative; max-width:1000px; margin:0 auto; padding:72px 24px; text-align:center; }
       h1.landing-title{ font-size:56px; line-height:1.05; margin:0; background:linear-gradient(90deg,#0A2647,#205295);
@@ -44,10 +51,8 @@ def show_landing_page():
       .cta .primary{ background:#205295; color:#fff; border:none; padding:12px 18px; border-radius:12px; font-weight:700;
         box-shadow:0 6px 20px rgba(32,82,149,.25); transition:.2s; display:inline-block;}
       .cta .primary:hover{ transform:translateY(-1px); background:#144272; }
-      .cta .ghost{ background:transparent; border:1px dashed #20529588; color:#205295; padding:12px 18px; border-radius:12px; font-weight:700; }
       .skeletons{ display:grid; grid-template-columns:repeat(3,minmax(220px,1fr)); gap:14px; margin:22px auto 4px; max-width:860px;}
-      .sk{ height:88px; border-radius:16px; background:linear-gradient(90deg,#f2f7ff 0%,#e9f2ff 50%,#f2f7ff 100%);
-        animation:shimmer 1.6s infinite; border:1px solid #e7f0ff;}
+      .sk{ height:88px; border-radius:16px; background:linear-gradient(90deg,#f2f7ff 0%,#e9f2ff 50%,#f2f7ff 100%); animation:shimmer 1.6s infinite; border:1px solid #e7f0ff;}
       @keyframes shimmer{ 0%{background-position:-200px 0} 100%{background-position:200px 0} }
     </style>
     """, unsafe_allow_html=True)
@@ -74,8 +79,7 @@ def show_landing_page():
         </div>
 
         <div class="cta">
-          <span class="primary">⬆️ Upload your CSV on the sidebar</span>
-          <span class="ghost">See insights instantly</span>
+          <span class="primary">⬆️ Upload your CSV on the left</span>
         </div>
       </div>
 
@@ -84,6 +88,70 @@ def show_landing_page():
       </div>
     </div>
     """, height=620)
+
+# ---------------
+# Helpers
+# ---------------
+def show_preview_safe(df, rows=50):
+    """Arrow-safe preview that won’t crash on mixed dtypes."""
+    try:
+        st.dataframe(df.head(rows), width="stretch", height=360)
+    except Exception:
+        df2 = df.copy()
+        for c in df2.columns:
+            if df2[c].dtype == "object":
+                df2[c] = df2[c].astype("string")
+        st.dataframe(df2.head(rows), width="stretch", height=360)
+
+# -------------------------------------------------------
+# 🔹 Sidebar uploader FIRST (nothing else should render)
+# -------------------------------------------------------
+uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=["csv"])
+
+# Hide default yellow sidebar warning to keep landing clean
+st.markdown("""
+<style>
+  [data-testid="stSidebar"] [role="alert"] { display:none !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# -----------------------
+# LANDING GATE
+# -----------------------
+if uploaded is None and "df_ready" not in st.session_state:
+    render_landing()
+    st.stop()
+
+# -----------------------
+# Load data (once per session)
+# -----------------------
+if uploaded is not None and "df_ready" not in st.session_state:
+    df = pd.read_csv(uploaded, on_bad_lines="skip", low_memory=False)
+    st.session_state.df = df
+    st.session_state.df_ready = True
+
+df = st.session_state.get("df", None)
+
+# -----------------------
+# MAIN APP (after data)
+# -----------------------
+st.markdown("<h1>DailyDeck: The Story Behind the Numbers</h1>", unsafe_allow_html=True)
+
+# (Optional) quick confirmation + preview
+if df is not None:
+    st.caption("✅ Data loaded.")
+    with st.expander("Preview first 50 rows", expanded=False):
+        show_preview_safe(df, rows=50)
+
+# ======================================================
+# 🔻 YOUR APP GOES HERE — keep your existing sections
+#    (Sales, Operations, Insights, GPT, etc.)
+# ======================================================
+# e.g.
+# sales_overview(df)
+# cashiers_performance(df)
+# gpt_insights_panel(df)
+
 
 
 # -----------------------
