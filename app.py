@@ -8,35 +8,6 @@ from datetime import timedelta
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 
-# ---- MOVE SIDEBAR TO BOTTOM ----
-st.markdown("""
-    <style>
-        /* Hide default sidebar */
-        [data-testid="stSidebar"] {
-            display: none !important;
-        }
-
-        /* Create a bottom horizontal bar */
-        .bottom-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background: white;
-            border-top: 1px solid #ddd;
-            padding: 10px 20px;
-            z-index: 9999;
-            display: flex;
-            justify-content: center;
-            gap: 20px;
-        }
-
-        /* Make uploader smaller */
-        .bottom-bar .upload-box {
-            width: 350px;
-        }
-    </style>
-""", unsafe_allow_html=True)
 
 
 # -----------------------
@@ -46,30 +17,18 @@ st.markdown("""
 def load_csv(path: str) -> pd.DataFrame:
     return pd.read_csv(path, on_bad_lines='skip', low_memory=False)
 
-
 @st.cache_data
 def load_uploaded_file(contents: bytes) -> pd.DataFrame:
     from io import BytesIO
     return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
 
-
 def smart_load():
-    # ---- BOTTOM UPLOAD BAR ----
-    st.markdown("""
-        <div class="bottom-bar">
-            <div class="upload-box">
-                <h4>Upload DAILY_POS_TRN_ITEMS CSV</h4>
-    """, unsafe_allow_html=True)
-
-    # Uploader input lives in the bottom bar
-    uploaded = st.file_uploader(" ", type=['csv'])
-
-    st.markdown("</div></div>", unsafe_allow_html=True)
-
+    st.sidebar.markdown("### Upload data (CSV) or use default")
+    uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=['csv'])
     if uploaded is not None:
         with st.spinner("Parsing uploaded CSV..."):
             df = load_uploaded_file(uploaded.getvalue())
-        st.success("Loaded uploaded CSV")
+        st.sidebar.success("Loaded uploaded CSV")
         return df
 
     # try default path (optional)
@@ -77,12 +36,11 @@ def smart_load():
     try:
         with st.spinner(f"Loading default CSV: {default_path}"):
             df = load_csv(default_path)
-        st.info(f"Loaded default path: {default_path}")
+        st.sidebar.info(f"Loaded default path: {default_path}")
         return df
     except Exception:
-        st.warning("No default CSV found. Please upload a CSV to run the app.")
+        st.sidebar.warning("No default CSV found. Please upload a CSV to run the app.")
         return None
-
 
 # -----------------------
 # Robust cleaning + derived columns (cached)
