@@ -5,13 +5,35 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 
-#st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
-# Add the following at the very top of your Streamlit script, AFTER st.set_page_config
+# ------ HEADER and FOOTER -------
+def header():
+    st.markdown("""
+        <div style='width:100%;padding:2rem 1.5rem 1rem;background:#fff;border-bottom:1px solid #eef1f6;text-align:center;position:relative;'>
+            <div>
+                <h1 style='margin:.2rem 0 0 0;font-size:2rem;color:#111827;'>Quick Mart Limited</h1>
+                <p style='margin:0 .2rem 0 0;font-size:1rem;color:#d72638;font-weight:600;'>Let the data Speak</p>
+            </div>
+            <a href="/home" style='position:absolute;top:2rem;right:1.5rem;' class='btn btn-outline'>Home</a>
+        </div>
+        """, unsafe_allow_html=True)
 
+def footer():
+    st.markdown("""
+        <div style='width:100%;padding:.5rem 1rem;background:#111827;color:#fff;font-size:.8rem;text-align:left;'>
+            © 2025 Quick Mart Limited
+        </div>
+        """, unsafe_allow_html=True)
 
+# -- KPI display (uses basic aggregations, adjust for your actual needs)
+def show_kpis(df):
+    kpi_cols = st.columns(4)
+    kpi_cols[0].metric("Net Sales", f"KSh {df['NET_SALES'].sum()/1_000_000:.1f}M" if 'NET_SALES' in df else "KSh 0M")
+    kpi_cols[1].metric("Baskets", f"{df['CUST_CODE'].nunique()/1_000:.1f}K" if 'CUST_CODE' in df else "0K")
+    kpi_cols[2].metric("Avg Items/Receipt", f"{df.groupby('CUST_CODE')['ITEM_CODE'].nunique().mean():.1f}" if 'ITEM_CODE' in df and 'CUST_CODE' in df else "0.0")
+    kpi_cols[3].metric("Active Tills", f"{df['Till_Code'].nunique() if 'Till_Code' in df else 0}")
 
 # -----------------------
-# Data Loading & Caching
+# Data Loading & Caching (sidebar references REMOVED)
 # -----------------------
 @st.cache_data
 def load_csv(path: str) -> pd.DataFrame:
@@ -23,24 +45,172 @@ def load_uploaded_file(contents: bytes) -> pd.DataFrame:
     return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
 
 def smart_load():
-    st.sidebar.markdown("### Upload data (CSV) or use default")
-    uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=['csv'])
-    if uploaded is not None:
+    default_path = "/content/DAILY_POS_TRN_ITEMS_2025-10-21.csv"
+    with st.form("csvUploader"):
+        uploaded = st.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=['csv'])
+        submit = st.form_submit_button("Upload CSV")
+    if uploaded and submit:
         with st.spinner("Parsing uploaded CSV..."):
             df = load_uploaded_file(uploaded.getvalue())
-        st.sidebar.success("Loaded uploaded CSV")
+        st.success("Loaded uploaded CSV")
         return df
-
-    # try default path (optional)
-    default_path = "/content/DAILY_POS_TRN_ITEMS_2025-10-21.csv"
     try:
         with st.spinner(f"Loading default CSV: {default_path}"):
             df = load_csv(default_path)
-        st.sidebar.info(f"Loaded default path: {default_path}")
+        st.info(f"Loaded default path: {default_path}")
         return df
     except Exception:
-        st.sidebar.warning("No default CSV found. Please upload a CSV to run the app.")
+        st.warning("No default CSV found. Please upload a CSV to run the app.")
         return None
+
+# ----------------------
+# Section + Subsection NAVIGATION (NO SIDEBAR)
+# ----------------------
+def main_navigation():
+    nav_labels = ["SALES", "OPERATIONS", "INSIGHTS"]
+    if "main_section" not in st.session_state:
+        st.session_state["main_section"] = nav_labels[0]
+
+    nav_cols = st.columns(len(nav_labels))
+    for i, label in enumerate(nav_labels):
+        if nav_cols[i].button(label):
+            st.session_state["main_section"] = label
+
+    section_subs = {
+        "SALES": [
+            "Global sales Overview",
+            "Global Net Sales Distribution by Sales Channel",
+            "Global Net Sales Distribution by SHIFT",
+            "Night vs Day Shift Sales Ratio — Stores with Night Shifts",
+            "Global Day vs Night Sales — Only Stores with NIGHT Shift",
+            "2nd-Highest Channel Share",
+            "Bottom 30 — 2nd Highest Channel",
+            "Stores Sales Summary"
+        ],
+        "OPERATIONS": [
+            "Customer Traffic-Storewise",
+            "Active Tills During the day",
+            "Average Customers Served per Till",
+            "Store Customer Traffic Storewise",
+            "Customer Traffic-Departmentwise",
+            "Cashiers Perfomance",
+            "Till Usage",
+            "Tax Compliance"
+        ],
+        "INSIGHTS": [
+            "Customer Baskets Overview",
+            "Global Category Overview-Sales",
+            "Global Category Overview-Baskets",
+            "Supplier Contribution",
+            "Category Overview",
+            "Branch Comparison",
+            "Product Perfomance",
+            "Global Loyalty Overview",
+            "Branch Loyalty Overview",
+            "Customer Loyalty Overview",
+            "Global Pricing Overview",
+            "Branch Pricing Overview",
+            "Global Refunds Overview",
+            "Branch Refunds Overview"
+        ]
+    }
+    subs = section_subs.get(st.session_state["main_section"], [])
+    tab = st.selectbox(f"{st.session_state['main_section']} Subsection", subs, key="subsection_select")
+    return st.session_state["main_section"], tab
+
+# -------------------------------------------------------------------
+# Copy all your analysis functions from Updated_Cashier_perfomance.py and paste below here, unchanged!
+# (NOTICE: Do NOT use ANY sidebar references in these functions—the navigation and uploader are now main-area only.)
+# -------------------------------------------------------------------
+# Paste all sales_global_overview, sales_by_channel_l2, ... all other analytic functions here (see previous file)
+
+# ... [PASTE YOUR FULL SET OF FUNCTIONS FROM THE PREVIOUS FILE HERE, JUST REMOVE THE 'st.sidebar' USAGE FROM mappings and navigation]
+
+# The key change: in all places, navigation is handled by section/tab selectboxes, NOT by `st.sidebar.selectbox`!
+
+# ------------------------------
+# Main App Block (NO SIDEBAR)
+# ------------------------------
+def main():
+    st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
+    header()
+    df = smart_load()
+    if df is None:
+        st.stop()
+    df = clean_and_derive(df)
+    show_kpis(df)
+    section, subsection = main_navigation()
+
+    # --- Navigation router ---
+    if section == "SALES":
+        if subsection == "Global sales Overview":
+            sales_global_overview(df)
+        elif subsection == "Global Net Sales Distribution by Sales Channel":
+            sales_by_channel_l2(df)
+        elif subsection == "Global Net Sales Distribution by SHIFT":
+            sales_by_shift(df)
+        elif subsection == "Night vs Day Shift Sales Ratio — Stores with Night Shifts":
+            night_vs_day_ratio(df)
+        elif subsection == "Global Day vs Night Sales — Only Stores with NIGHT Shift":
+            global_day_vs_night(df)
+        elif subsection == "2nd-Highest Channel Share":
+            second_highest_channel_share(df)
+        elif subsection == "Bottom 30 — 2nd Highest Channel":
+            bottom_30_2nd_highest(df)
+        elif subsection == "Stores Sales Summary":
+            stores_sales_summary(df)
+
+    elif section == "OPERATIONS":
+        if subsection == "Customer Traffic-Storewise":
+            customer_traffic_storewise(df)
+        elif subsection == "Active Tills During the day":
+            active_tills_during_day(df)
+        elif subsection == "Average Customers Served per Till":
+            avg_customers_per_till(df)
+        elif subsection == "Store Customer Traffic Storewise":
+            store_customer_traffic_storewise(df)
+        elif subsection == "Customer Traffic-Departmentwise":
+            customer_traffic_departmentwise(df)
+        elif subsection == "Cashiers Perfomance":
+            cashiers_performance(df)
+        elif subsection == "Till Usage":
+            till_usage(df)
+        elif subsection == "Tax Compliance":
+            tax_compliance(df)
+
+    elif section == "INSIGHTS":
+        if subsection == "Customer Baskets Overview":
+            customer_baskets_overview(df)
+        elif subsection == "Global Category Overview-Sales":
+            global_category_overview_sales(df)
+        elif subsection == "Global Category Overview-Baskets":
+            global_category_overview_baskets(df)
+        elif subsection == "Supplier Contribution":
+            supplier_contribution(df)
+        elif subsection == "Category Overview":
+            category_overview(df)
+        elif subsection == "Branch Comparison":
+            branch_comparison(df)
+        elif subsection == "Product Perfomance":
+            product_performance(df)
+        elif subsection == "Global Loyalty Overview":
+            global_loyalty_overview(df)
+        elif subsection == "Branch Loyalty Overview":
+            branch_loyalty_overview(df)
+        elif subsection == "Customer Loyalty Overview":
+            customer_loyalty_overview(df)
+        elif subsection == "Global Pricing Overview":
+            global_pricing_overview(df)
+        elif subsection == "Branch Pricing Overview":
+            branch_pricing_overview(df)
+        elif subsection == "Global Refunds Overview":
+            global_refunds_overview(df)
+        elif subsection == "Branch Refunds Overview":
+            branch_refunds_overview(df)
+    footer()
+
+if __name__ == "__main__":
+    main()
 
 # -----------------------
 # Robust cleaning + derived columns (cached)
