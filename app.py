@@ -46,27 +46,30 @@ st.markdown("""
 def load_csv(path: str) -> pd.DataFrame:
     return pd.read_csv(path, on_bad_lines='skip', low_memory=False)
 
+
 @st.cache_data
 def load_uploaded_file(contents: bytes) -> pd.DataFrame:
     from io import BytesIO
     return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
 
+
 def smart_load():
-# ---- BOTTOM UPLOAD BAR ----
-st.markdown("""
-<div class="bottom-bar">
-    <div class="upload-box">
-        <h4>Upload DAILY_POS_TRN_ITEMS CSV</h4>
-""", unsafe_allow_html=True)
+    # ---- BOTTOM UPLOAD BAR ----
+    st.markdown("""
+        <div class="bottom-bar">
+            <div class="upload-box">
+                <h4>Upload DAILY_POS_TRN_ITEMS CSV</h4>
+    """, unsafe_allow_html=True)
 
-uploaded = st.file_uploader(" ", type=['csv'])
+    # Uploader input lives in the bottom bar
+    uploaded = st.file_uploader(" ", type=['csv'])
 
-st.markdown("</div></div>", unsafe_allow_html=True)
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
     if uploaded is not None:
         with st.spinner("Parsing uploaded CSV..."):
             df = load_uploaded_file(uploaded.getvalue())
-        st.sidebar.success("Loaded uploaded CSV")
+        st.success("Loaded uploaded CSV")
         return df
 
     # try default path (optional)
@@ -74,11 +77,12 @@ st.markdown("</div></div>", unsafe_allow_html=True)
     try:
         with st.spinner(f"Loading default CSV: {default_path}"):
             df = load_csv(default_path)
-        st.sidebar.info(f"Loaded default path: {default_path}")
+        st.info(f"Loaded default path: {default_path}")
         return df
     except Exception:
-        st.sidebar.warning("No default CSV found. Please upload a CSV to run the app.")
+        st.warning("No default CSV found. Please upload a CSV to run the app.")
         return None
+
 
 # -----------------------
 # Robust cleaning + derived columns (cached)
