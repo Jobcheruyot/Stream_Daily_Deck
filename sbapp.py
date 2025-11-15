@@ -1,11 +1,20 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta, datetime
-import supabase
-from supabase import create_client, Client
+import os
+from dotenv import load_dotenv
+
+# Try to import Supabase, with fallback
+try:
+    from supabase import create_client, Client
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    st.warning("Supabase client not available. Please install with: pip install supabase")
 
 st.set_page_config(layout="wide", page_title="Superdeck (Supabase)")
 
@@ -1003,3 +1012,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
