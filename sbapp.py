@@ -23,9 +23,8 @@ st.set_page_config(layout="wide", page_title="Superdeck (Supabase)")
 # -----------------------
 @st.cache_resource
 def init_supabase():
-    SUPABASE_URL = st.secrets.get("https://nyeolmhfbuomnnphcrdm.supabase.co"
-    SUPABASE_KEY = st.secrets.get("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55ZW9sbWhmYnVvbW5ucGhjcmRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMwMjY0NzEsImV4cCI6MjA3ODYwMjQ3MX0.3yAN1VTGWhJFy5y5Bn5vhcDTjp3-grjr7cXGpxGXR-E", "your_supabase_key_here")
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    SUPABASE_URL = "https://nyeolmhfbuomnnphcrdm.supabase.co"
+    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55ZW9sbWhmYnVvbW5ucGhjcmRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMwMjY0NzEsImV4cCI6MjA3ODYwMjQ3MX0.3yAN1VTGWhJFy5y5Bn5vhcDTjp3-grjr7cXGpxGXR-E"
 
 # -----------------------
 # Data Loading from Supabase
@@ -1012,5 +1011,6 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
