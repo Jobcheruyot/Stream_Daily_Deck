@@ -39,13 +39,13 @@ def load_supabase_data(date_basis: str, start_date: datetime, end_date: datetime
     
     # Query based on selected date basis
     if date_basis == 'TRN_DATE':
-        response = supabase_client.table('DAILY_POS_TRN_ITEMS')\
+        response = supabase_client.table('daily_pos_trn_items_clean')\
             .select('*')\
             .gte('TRN_DATE', start_date_str)\
             .lte('TRN_DATE', end_date_str)\
             .execute()
     else:  # ZED_DATE
-        response = supabase_client.table('DAILY_POS_TRN_ITEMS')\
+        response = supabase_client.table('daily_pos_trn_items_clean')\
             .select('*')\
             .gte('ZED_DATE', start_date_str)\
             .lte('ZED_DATE', end_date_str)\
@@ -1011,6 +1011,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
