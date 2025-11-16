@@ -125,22 +125,28 @@ def clean_df(df, date_basis):
 # ---------------------------------------------------------
 # SALES REPORTS
 # ---------------------------------------------------------
-def sales_global(df):
-    st.subheader("Global Sales Overview")
-
-    if "NET_SALES" not in df.columns:
-        st.warning("NET_SALES not found in data.")
+def sales_global_overview(df):
+    st.header("Global sales Overview")
+    if 'SALES_CHANNEL_L1' not in df.columns or 'NET_SALES' not in df.columns:
+        st.warning("Missing SALES_CHANNEL_L1 or NET_SALES")
         return
-
-    total_sales = df["NET_SALES"].sum()
-    total_qty = df["QTY"].sum()
-
-    c1, c2 = st.columns(2)
-    c1.metric("Net Sales", f"{total_sales:,.0f}")
-    c2.metric("Quantity", f"{total_qty:,.0f}")
-
-    daily = df.groupby("DATE")["NET_SALES"].sum().reset_index()
-    st.plotly_chart(px.line(daily, x="DATE", y="NET_SALES"), use_container_width=True)
+    g = agg_net_sales_by(df, 'SALES_CHANNEL_L1')
+    g['NET_SALES_M'] = g['NET_SALES'] / 1_000_000
+    fig = donut_from_agg(
+        g,
+        'SALES_CHANNEL_L1',
+        'NET_SALES',
+        "<b>SALES CHANNEL TYPE — Global Overview</b>",
+        hole=0.65,
+        value_is_millions=True
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    format_and_display(
+        g[['SALES_CHANNEL_L1', 'NET_SALES']],
+        numeric_cols=['NET_SALES'],
+        index_col='SALES_CHANNEL_L1',
+        total_label='TOTAL'
+    )
 
 
 # ---------------------------------------------------------
@@ -194,3 +200,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
