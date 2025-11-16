@@ -14,8 +14,8 @@ st.set_page_config(layout="wide", page_title="Superdeck (Supabase)")
 # -----------------------
 @st.cache_resource
 def init_supabase():
-    SUPABASE_URL = st.secrets.get("https://eifqphcrwzddrmvdmtek.supabase.coL", "your_supabase_url_here")
-    SUPABASE_KEY = st.secrets.get("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpZnFwaGNyd3pkZHJtdmRtdGVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxMTAyODQsImV4cCI6MjA3ODY4NjI4NH0.DlC8ZBUO0BZAcKR1IzVmaCyc4hD7OGVPlcYWj3sTXec", "your_supabase_key_here")
+    SUPABASE_URL = st.secrets.get("https://eifqphcrwzddrmvdmtek.supabase.coL")
+    SUPABASE_KEY = st.secrets.get("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpZnFwaGNyd3pkZHJtdmRtdGVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxMTAyODQsImV4cCI6MjA3ODY4NjI4NH0.DlC8ZBUO0BZAcKR1IzVmaCyc4hD7OGVPlcYWj3sTXec")
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # -----------------------
@@ -1002,3 +1002,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
