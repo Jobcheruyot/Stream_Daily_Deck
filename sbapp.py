@@ -4,6 +4,7 @@ import numpy as np
 import plotly.express as px
 from datetime import datetime, timedelta
 from supabase import create_client
+from supabase import create_client
 
 st.set_page_config(layout="wide", page_title="Superdeck")
 
@@ -2407,3 +2408,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
