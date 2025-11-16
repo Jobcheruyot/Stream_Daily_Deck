@@ -17,6 +17,40 @@ TABLE_NAME = "daily_pos_trn_items_clean"
 # ---------------------------------------------------------
 # CONNECT TO SUPABASE
 # ---------------------------------------------------------
+@st.cache_data
+def smart_load():
+    """
+    Load data from Supabase and make columns UPPERCASE
+    so the rest of the app continues to work.
+    """
+    try:
+        # USE THE CORRECT INIT FUNCTION (reads from st.secrets)
+        client = init_supabase()
+
+        # Pull ALL rows
+        res = client.table(SUPABASE_TABLE).select("*").execute()
+
+        if not res.data:
+            st.error(f"No data returned from Supabase table '{SUPABASE_TABLE}'.")
+            return None
+
+        df = pd.DataFrame(res.data)
+
+        # Convert columns to UPPERCASE
+        df.columns = [c.upper() for c in df.columns]
+
+        # Convert date columns
+        for col in ["TRN_DATE", "ZED_DATE"]:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
+
+        return df
+
+    except Exception as e:
+        st.error(f"Error loading data from Supabase: {e}")
+        return None
+
+
 @st.cache_resource
 def init_supabase():
     try:
@@ -2643,5 +2677,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
