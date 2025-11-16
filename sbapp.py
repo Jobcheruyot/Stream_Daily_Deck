@@ -1,20 +1,11 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta, datetime
-import os
-from dotenv import load_dotenv
-
-# Try to import Supabase, with fallback
-try:
-    from supabase import create_client, Client
-    SUPABASE_AVAILABLE = True
-except ImportError:
-    SUPABASE_AVAILABLE = False
-    st.warning("Supabase client not available. Please install with: pip install supabase")
+import supabase
+from supabase import create_client, Client
 
 st.set_page_config(layout="wide", page_title="Superdeck (Supabase)")
 
@@ -23,8 +14,9 @@ st.set_page_config(layout="wide", page_title="Superdeck (Supabase)")
 # -----------------------
 @st.cache_resource
 def init_supabase():
-    SUPABASE_URL = "https://nyeolmhfbuomnnphcrdm.supabase.co"
-    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55ZW9sbWhmYnVvbW5ucGhjcmRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMwMjY0NzEsImV4cCI6MjA3ODYwMjQ3MX0.3yAN1VTGWhJFy5y5Bn5vhcDTjp3-grjr7cXGpxGXR-E"
+    SUPABASE_URL = st.secrets.get("https://eifqphcrwzddrmvdmtek.supabase.coL", "your_supabase_url_here")
+    SUPABASE_KEY = st.secrets.get("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpZnFwaGNyd3pkZHJtdmRtdGVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxMTAyODQsImV4cCI6MjA3ODY4NjI4NH0.DlC8ZBUO0BZAcKR1IzVmaCyc4hD7OGVPlcYWj3sTXec", "your_supabase_key_here")
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # -----------------------
 # Data Loading from Supabase
@@ -39,13 +31,13 @@ def load_supabase_data(date_basis: str, start_date: datetime, end_date: datetime
     
     # Query based on selected date basis
     if date_basis == 'TRN_DATE':
-        response = supabase_client.table('daily_pos_trn_items_clean')\
+        response = supabase_client.table('DAILY_POS_TRN_ITEMS')\
             .select('*')\
             .gte('TRN_DATE', start_date_str)\
             .lte('TRN_DATE', end_date_str)\
             .execute()
     else:  # ZED_DATE
-        response = supabase_client.table('daily_pos_trn_items_clean')\
+        response = supabase_client.table('DAILY_POS_TRN_ITEMS')\
             .select('*')\
             .gte('ZED_DATE', start_date_str)\
             .lte('ZED_DATE', end_date_str)\
@@ -1009,9 +1001,4 @@ def main():
             st.info("Function coming soon - pattern established")
 
 if __name__ == "__main__":
-
     main()
-
-
-
-
