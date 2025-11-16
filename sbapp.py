@@ -8,6 +8,9 @@ from supabase import create_client
 
 st.set_page_config(layout="wide", page_title="Superdeck")
 
+SUPABASE_TABLE = "daily_pos_trn_items_clean"
+
+
 TABLE_NAME = "daily_pos_trn_items_clean"
 
 # ---------------------------------------------------------
@@ -2408,4 +2411,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
