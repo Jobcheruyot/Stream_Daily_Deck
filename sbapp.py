@@ -9,9 +9,7 @@ from supabase import create_client
 st.set_page_config(layout="wide", page_title="Superdeck")
 
 SUPABASE_TABLE = "daily_pos_trn_items_clean"
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-SUPABASE_TABLE = st.secrets["SUPABASE_TABLE"]
+
 
 
 TABLE_NAME = "daily_pos_trn_items_clean"
@@ -2645,4 +2643,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
