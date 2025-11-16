@@ -64,7 +64,7 @@ def load_supabase_data(
 
     # Supabase query
     response = (
-        client.table("public.daily_pos_trn_items_clean")
+        client.table("daily_pos_trn_items_clean")
         .select("*")
         .gte(date_basis, start_str)
         .lte(date_basis, end_str)
@@ -885,6 +885,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
