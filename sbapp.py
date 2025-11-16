@@ -51,7 +51,7 @@ def load_supabase_data(
     end_date: datetime,
 ) -> pd.DataFrame:
     """
-    Load DAILY_POS_TRN_ITEMS from Supabase using TRN_DATE or ZED_DATE
+    Load public.daily_pos_trn_items_clean from Supabase using TRN_DATE or ZED_DATE
     as the basis for filtering.
     """
     client = init_supabase()
@@ -64,7 +64,7 @@ def load_supabase_data(
 
     # Supabase query
     response = (
-        client.table("DAILY_POS_TRN_ITEMS")
+        client.table("public.daily_pos_trn_items_clean")
         .select("*")
         .gte(date_basis, start_str)
         .lte(date_basis, end_str)
@@ -855,7 +855,7 @@ def main():
     df = clean_and_derive(raw_df, date_basis)
 
     st.caption(
-        f"Data source: Supabase • Table: DAILY_POS_TRN_ITEMS • "
+        f"Data source: Supabase • Table: public.daily_pos_trn_items_clean • "
         f"Date Basis: {date_basis} • Period: {start_date} to {end_date}"
     )
 
@@ -885,5 +885,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
