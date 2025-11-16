@@ -183,7 +183,8 @@ def smart_load():
     continues to work.
     """
     try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        client = init_supabase()
+
 
         # Pull ALL rows – adjust the select/filter if you need
         res = supabase.table(SUPABASE_TABLE).select("*").execute()
@@ -2677,6 +2678,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
