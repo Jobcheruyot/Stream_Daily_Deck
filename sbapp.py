@@ -181,9 +181,8 @@ def smart_load():
     try:
         client = init_supabase()
 
-
         # Pull ALL rows – adjust the select/filter if you need
-        res = supabase.table(SUPABASE_TABLE).select("*").execute()
+        res = client.table(SUPABASE_TABLE).select("*").execute()
 
         if not res.data:
             st.error(f"No data returned from Supabase table '{SUPABASE_TABLE}'.")
@@ -204,6 +203,7 @@ def smart_load():
     except Exception as e:
         st.error(f"Error loading data from Supabase: {e}")
         return None
+
 
 # -----------------------
 # Robust cleaning + derived columns (cached)
@@ -2674,6 +2674,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
