@@ -24,7 +24,7 @@ def init_supabase() -> Client:
     Initialize Supabase client using secrets.toml.
 
     Required in .streamlit/secrets.toml:
-        SUPABASE_URL = "https://<your-project>.supabase.co"
+        SUPABASE_URL = "https://eifqphcrwzddrmvdmtek.supabase.co"
         SUPABASE_KEY = "<eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpZnFwaGNyd3pkZHJtdmRtdGVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxMTAyODQsImV4cCI6MjA3ODY4NjI4NH0.DlC8ZBUO0BZAcKR1IzVmaCyc4hD7OGVPlcYWj3sTXec>"
     """
     try:
@@ -885,4 +885,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
