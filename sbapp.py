@@ -126,7 +126,237 @@ def clean_df(df, date_basis):
     return df
 
 
-# ---------------------------------------------------------
+
+# -----------------------
+# Data Loading & Caching
+# -----------------------
+@st.cache_data
+def load_csv(path: str) -> pd.DataFrame:
+    return pd.read_csv(path, on_bad_lines='skip', low_memory=False)
+
+@st.cache_data
+def load_uploaded_file(contents: bytes) -> pd.DataFrame:
+    from io import BytesIO
+    return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
+
+@st.cache_data
+def smart_load():
+    """
+    Load data from Supabase and make columns UPPERCASE
+    so the rest of the app (which uses 'STORE_CODE', 'TRN_DATE', etc.)
+    continues to work.
+    """
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+        # Pull ALL rows – adjust the select/filter if you need
+        res = supabase.table(SUPABASE_TABLE).select("*").execute()
+
+        if not res.data:
+            st.error(f"No data returned from Supabase table '{SUPABASE_TABLE}'.")
+            return None
+
+        df = pd.DataFrame(res.data)
+
+        # 🔠 make all column names UPPERCASE to match the rest of your code
+        df.columns = [c.upper() for c in df.columns]
+
+        # Optional: make sure date columns are proper datetimes
+        for col in ["TRN_DATE", "ZED_DATE"]:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
+
+        return df
+
+    except Exception as e:
+        st.error(f"Error loading data from Supabase: {e}")
+        return None
+
+# -----------------------
+# Robust cleaning + derived columns (cached)
+# -----------------------
+@st.cache_data
+def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None:
+        return df
+    d = df.copy()
+
+    # Normalize string columns
+    str_cols = [
+        'STORE_CODE','TILL','SESSION','RCT','STORE_NAME','CASHIER','ITEM_CODE',
+        'ITEM_NAME','DEPARTMENT','CATEGORY','CU_DEVICE_SERIAL','CAP_CUSTOMER_CODE',
+        'LOYALTY_CUSTOMER_CODE','SUPPLIER_NAME','SALES_CHANNEL_L1','SALES_CHANNEL_L2','SHIFT'
+    ]
+    for c in str_cols:
+        if c in d.columns:
+            d[c] = d[c].fillna('').astype(str).str.strip()
+
+    # Dates
+    if 'TRN_DATE' in d.columns:
+        d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
+        d = d.dropna(subset=['TRN_DATE']).copy()
+        d['DATE'] = d['TRN_DATE'].dt.date
+        d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30min')
+        d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
+
+    if 'ZED_DATE' in d.columns:
+        d['ZED_DATE'] = pd.to_datetime(d['ZED_DATE'], errors='coerce')
+
+    # Numeric parsing
+    numeric_cols = ['QTY', 'CP_PRE_VAT', 'SP_PRE_VAT', 'COST_PRE_VAT', 'NET_SALES', 'VAT_AMT']
+    for c in numeric_cols:
+        if c in d.columns:
+            d[c] = pd.to_numeric(
+                d[c].astype(str).str.replace(',', '', regex=False).str.strip(),
+                errors='coerce'
+            ).fillna(0)
+
+    # GROSS_SALES
+    if 'GROSS_SALES' not in d.columns:
+        d['GROSS_SALES'] = d.get('NET_SALES', 0) + d.get('VAT_AMT', 0)
+
+    # CUST_CODE
+    if all(col in d.columns for col in ['STORE_CODE','TILL','SESSION','RCT']):
+        d['CUST_CODE'] = (
+            d['STORE_CODE'].astype(str) + '-' +
+            d['TILL'].astype(str) + '-' +
+            d['SESSION'].astype(str) + '-' +
+            d['RCT'].astype(str)
+        )
+    else:
+        if 'CUST_CODE' not in d.columns:
+            d['CUST_CODE'] = ''
+
+    # Till_Code
+    if 'TILL' in d.columns and 'STORE_CODE' in d.columns:
+        d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
+
+    # CASHIER-COUNT
+    if 'STORE_NAME' in d.columns and 'CASHIER' in d.columns:
+        d['CASHIER-COUNT'] = d['CASHIER'].astype(str) + '-' + d['STORE_NAME'].astype(str)
+
+    # Shift bucket
+    if 'SHIFT' in d.columns:
+        d['Shift_Bucket'] = np.where(
+            d['SHIFT'].str.upper().str.contains('NIGHT', na=False),
+            'Night',
+            'Day'
+        )
+
+    if 'SP_PRE_VAT' in d.columns:
+        d['SP_PRE_VAT'] = d['SP_PRE_VAT'].astype(float)
+    if 'NET_SALES' in d.columns:
+        d['NET_SALES'] = d['NET_SALES'].astype(float)
+
+    return d
+
+# -----------------------
+# Small cached aggregation helpers
+# -----------------------
+@st.cache_data
+def agg_net_sales_by(df: pd.DataFrame, col: str) -> pd.DataFrame:
+    if col not in df.columns:
+        return pd.DataFrame(columns=[col, 'NET_SALES'])
+    g = df.groupby(col, as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
+    return g
+
+@st.cache_data
+def agg_count_distinct(df: pd.DataFrame, group_by: list, agg_col: str, agg_name: str) -> pd.DataFrame:
+    g = df.groupby(group_by).agg({agg_col: pd.Series.nunique}).reset_index().rename(columns={agg_col: agg_name})
+    return g
+
+# -----------------------
+# Table formatting helper
+# -----------------------
+def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None,
+                       index_col: str | None = None, total_label: str = 'TOTAL'):
+    if df is None or df.empty:
+        st.dataframe(df)
+        return
+
+    df_display = df.copy()
+
+    if numeric_cols is None:
+        numeric_cols = list(df_display.select_dtypes(include=[np.number]).columns)
+
+    totals = {}
+    for col in df_display.columns:
+        if col in numeric_cols:
+            try:
+                totals[col] = df_display[col].astype(float).sum()
+            except Exception:
+                totals[col] = ''
+        else:
+            totals[col] = ''
+
+    if index_col and index_col in df_display.columns:
+        label_col = index_col
+    else:
+        non_numeric_cols = [c for c in df_display.columns if c not in numeric_cols]
+        label_col = non_numeric_cols[0] if non_numeric_cols else df_display.columns[0]
+
+    totals[label_col] = total_label
+
+    tot_df = pd.DataFrame([totals], columns=df_display.columns)
+    appended = pd.concat([df_display, tot_df], ignore_index=True)
+
+    for col in numeric_cols:
+        if col in appended.columns:
+            series_vals = appended[col].dropna()
+            try:
+                series_vals = series_vals.astype(float)
+            except Exception:
+                continue
+            is_int_like = len(series_vals) > 0 and np.allclose(
+                series_vals.fillna(0).round(0),
+                series_vals.fillna(0)
+            )
+            if is_int_like:
+                appended[col] = appended[col].map(
+                    lambda v: f"{int(v):,}" if pd.notna(v) and str(v) != '' else ''
+                )
+            else:
+                appended[col] = appended[col].map(
+                    lambda v: f"{float(v):,.2f}" if pd.notna(v) and str(v) != '' else ''
+                )
+
+    st.dataframe(appended, use_container_width=True)
+
+# -----------------------
+# Helper plotting utils
+# -----------------------
+def donut_from_agg(df_agg, label_col, value_col, title,
+                   hole=0.55, colors=None,
+                   legend_title=None, value_is_millions=False):
+    labels = df_agg[label_col].astype(str).tolist()
+    vals = df_agg[value_col].astype(float).tolist()
+    if value_is_millions:
+        vals_display = [v / 1_000_000 for v in vals]
+        hover = 'KSh %{value:,.2f} M'
+        values_for_plot = vals_display
+    else:
+        values_for_plot = vals
+        hover = 'KSh %{value:,.2f}' if isinstance(vals[0], (int, float)) else '%{value}'
+    s = sum(vals) if sum(vals) != 0 else 1
+    legend_labels = [
+        f"{lab} ({100*val/s:.1f}% | {val/1_000_000:.1f} M)" if value_is_millions
+        else f"{lab} ({100*val/s:.1f}%)"
+        for lab, val in zip(labels, vals)
+    ]
+    marker = dict(line=dict(color='white', width=1))
+    if colors:
+        marker['colors'] = colors
+    fig = go.Figure(data=[go.Pie(
+        labels=legend_labels,
+        values=values_for_plot,
+        hole=hole,
+        hovertemplate='<b>%{label}</b><br>' + hover + '<extra></extra>',
+        marker=marker
+    )])
+    fig.update_layout(title=title)
+    return fig
+
+# -----------------------
 # SALES
 # -----------------------
 def sales_global_overview(df):
@@ -2411,5 +2641,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
