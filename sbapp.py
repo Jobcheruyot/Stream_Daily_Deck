@@ -3,15 +3,11 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from datetime import datetime, timedelta
-from supabase import create_client
-from supabase import create_client
+from supabase import create_client   # ✅ keep only one import
 
 st.set_page_config(layout="wide", page_title="Superdeck")
 
 SUPABASE_TABLE = "daily_pos_trn_items_clean"
-
-
-
 TABLE_NAME = "daily_pos_trn_items_clean"
 
 # ---------------------------------------------------------
@@ -24,7 +20,7 @@ def smart_load():
     so the rest of the app continues to work.
     """
     try:
-        # USE THE CORRECT INIT FUNCTION (reads from st.secrets)
+        # Correctly initialize Supabase client (reads from st.secrets)
         client = init_supabase()
 
         # Pull ALL rows
@@ -36,10 +32,10 @@ def smart_load():
 
         df = pd.DataFrame(res.data)
 
-        # Convert columns to UPPERCASE
+        # Convert all columns to UPPERCASE
         df.columns = [c.upper() for c in df.columns]
 
-        # Convert date columns
+        # Fix date columns
         for col in ["TRN_DATE", "ZED_DATE"]:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors="coerce")
@@ -64,18 +60,17 @@ def init_supabase():
 
 
 # ---------------------------------------------------------
-# LOAD FROM SUPABASE (LOWERCASE-FRIENDLY)
+# LOAD FROM SUPABASE (LOWERCASE-FRIENDLY RANGE QUERY)
 # ---------------------------------------------------------
 def load_supabase_data(date_basis, start_date, end_date):
     client = init_supabase()
 
-    # force lowercase because Supabase stores columns in lowercase
+    # Supabase stores column names in lowercase
     date_basis_lower = date_basis.lower()
 
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
 
-    # Query Supabase
     try:
         res = (
             client.table(TABLE_NAME)
@@ -94,22 +89,23 @@ def load_supabase_data(date_basis, start_date, end_date):
     if df.empty:
         return df
 
-    # 🟢 Convert all columns to uppercase (CRITICAL FIX)
+    # Convert returned columns to UPPERCASE
     df.columns = [c.upper() for c in df.columns]
 
-    # 🟢 Create uppercase aliases for date columns if they exist
-    if "TRN_DATE" not in df.columns and "TRN_DATE".lower() in df.columns:
-        df["TRN_DATE"] = df["TRN_DATE".lower()]
-    if "ZED_DATE" not in df.columns and "ZED_DATE".lower() in df.columns:
-        df["ZED_DATE"] = df["ZED_DATE".lower()]
+    # Create uppercase aliases if Supabase returned lowercase fields
+    if "TRN_DATE" not in df.columns and "trn_date" in df.columns:
+        df["TRN_DATE"] = df["trn_date"]
 
-    # convert dates
+    if "ZED_DATE" not in df.columns and "zed_date" in df.columns:
+        df["ZED_DATE"] = df["zed_date"]
+
+    # Convert dates
     for col in ["TRN_DATE", "ZED_DATE"]:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors="coerce")
 
     return df
-    
+
 
 
 # ---------------------------------------------------------
@@ -2678,6 +2674,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
