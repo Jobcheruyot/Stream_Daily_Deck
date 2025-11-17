@@ -1,177 +1,173 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import date, timedelta
-from supabase import create_client, Client
+def smart_load() -> pd.DataFrame:
+    """
+    Supabase-based loader:
+    - user selects date range in sidebar
+    - we fetch ALL rows in that range in chunks
+    """
+    st.sidebar.markdown("### Select Date Range (Supabase)")
+    today = date.today()
+    start_date = st.sidebar.date_input("Start date", today - timedelta(days=7))
+    end_date   = st.sidebar.date_input("End date", today)
 
-st.set_page_config(layout="wide", page_title="DailyDeck (Supabase Millions)")
+    if start_date > end_date:
+        st.sidebar.error("Start date cannot be after end date")
+        st.stop()
 
-# =========================================================
-#  SUPABASE CONNECTION
-# =========================================================
-@st.cache_resource
-def get_supabase_client() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    with st.spinner("Loading data from Supabase ..."):
+        df = load_from_supabase(start_date, end_date)
 
-# =========================================================
-#  CHUNKED LOADER: FETCH *ALL* ROWS IN DATE RANGE
-#  - Uses range() pagination so we are NOT capped at 1,000
-#  - No artificial row limit
-#  - chunk_size can be tuned (100k is a good start)
-# =========================================================
-@st.cache_data(show_spinner=True)
-def load_from_supabase(
-    start_date: date,
-    end_date: date,
-    chunk_size: int = 100_000,
-) -> pd.DataFrame:
-    client = get_supabase_client()
+    if df is None or df.empty:
+        st.sidebar.warning("No data returned from Supabase for this period.")
+        return None
 
-    start_iso = f"{start_date}T00:00:00"
-    end_iso   = f"{end_date}T23:59:59.999999"
-
-    all_rows = []
-    start = 0
-
-    while True:
-        end = start + chunk_size - 1
-        resp = (
-            client.table("daily_pos_trn_items_clean")
-            .select("*")
-            .gte("trn_date", start_iso)
-            .lte("trn_date", end_iso)
-            .range(start, end)         # <-- no .limit(), use ranged pagination
-            .execute()
-        )
-        rows = resp.data or []
-        if not rows:
-            break
-
-        all_rows.extend(rows)
-
-        # if we got less than a full chunk, Supabase has no more rows
-        if len(rows) < chunk_size:
-            break
-
-        start += chunk_size
-
-    if not all_rows:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(all_rows)
-
-    # IMPORTANT: normalise to uppercase so your original code
-    # (TRN_DATE, STORE_NAME, SALES_CHANNEL_L1, etc.) still works
-    df.columns = [c.upper() for c in df.columns]
+    st.sidebar.success(
+        f"Loaded {len(df):,} rows from Supabase\n"
+        f"{start_date} → {end_date}"
+    )
     return df
 
-# =========================================================
-#  CLEANING & DERIVED COLUMNS (your existing version)
-#  (this is almost exactly what you already had)
-# =========================================================
-@st.cache_data
-def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        return df
-    d = df.copy()
 
-    # Normalize string columns
-    str_cols = [
-        'STORE_CODE','TILL','SESSION','RCT','STORE_NAME','CASHIER','ITEM_CODE',
-        'ITEM_NAME','DEPARTMENT','CATEGORY','CU_DEVICE_SERIAL','CAP_CUSTOMER_CODE',
-        'LOYALTY_CUSTOMER_CODE','SUPPLIER_NAME','SALES_CHANNEL_L1','SALES_CHANNEL_L2','SHIFT'
-    ]
-    for c in str_cols:
-        if c in d.columns:
-            d[c] = d[c].fillna('').astype(str).str.strip()
+def main():
+    st.title("DailyDeck: The Story Behind the Numbers (Supabase Edition)")
 
-    # Dates
-    if 'TRN_DATE' in d.columns:
-        d['TRN_DATE'] = pd.to_datetime(d['TRN_DATE'], errors='coerce')
-        d = d.dropna(subset=['TRN_DATE']).copy()
-        d['DATE'] = d['TRN_DATE'].dt.date
-        d['TIME_INTERVAL'] = d['TRN_DATE'].dt.floor('30min')
-        d['TIME_ONLY'] = d['TIME_INTERVAL'].dt.time
+    raw_df = smart_load()
+    if raw_df is None:
+        st.stop()
 
-    if 'ZED_DATE' in d.columns:
-        d['ZED_DATE'] = pd.to_datetime(d['ZED_DATE'], errors='coerce')
+    with st.spinner("Preparing data (cached) ..."):
+        df = clean_and_derive(raw_df)
 
-    # Numeric parsing
-    numeric_cols = ['QTY', 'CP_PRE_VAT', 'SP_PRE_VAT', 'COST_PRE_VAT', 'NET_SALES', 'VAT_AMT']
-    for c in numeric_cols:
-        if c in d.columns:
-            d[c] = pd.to_numeric(
-                d[c].astype(str).str.replace(',', '', regex=False).str.strip(),
-                errors='coerce'
-            ).fillna(0)
+    section = st.sidebar.selectbox(
+        "Section",
+        ["SALES", "OPERATIONS", "INSIGHTS"]
+    )
 
-    # GROSS_SALES
-    if 'GROSS_SALES' not in d.columns:
-        d['GROSS_SALES'] = d.get('NET_SALES', 0) + d.get('VAT_AMT', 0)
+    # -----------------------
+    # SALES
+    # -----------------------
+    if section == "SALES":
+        sales_items = [
+            "Global sales Overview",
+            "Global Net Sales Distribution by Sales Channel",
+            "Global Net Sales Distribution by SHIFT",
+            "Night vs Day Shift Sales Ratio — Stores with Night Shifts",
+            "Global Day vs Night Sales — Only Stores with NIGHT Shift",
+            "2nd-Highest Channel Share",
+            "Bottom 30 — 2nd Highest Channel",
+            "Stores Sales Summary"
+        ]
+        choice = st.sidebar.selectbox("Sales Subsection", sales_items)
 
-    # CUST_CODE
-    if all(col in d.columns for col in ['STORE_CODE','TILL','SESSION','RCT']):
-        d['CUST_CODE'] = (
-            d['STORE_CODE'].astype(str) + '-' +
-            d['TILL'].astype(str) + '-' +
-            d['SESSION'].astype(str) + '-' +
-            d['RCT'].astype(str)
-        )
-    else:
-        if 'CUST_CODE' not in d.columns:
-            d['CUST_CODE'] = ''
+        if choice == sales_items[0]:
+            sales_global_overview(df)
+        elif choice == sales_items[1]:
+            sales_by_channel_l2(df)
+        elif choice == sales_items[2]:
+            sales_by_shift(df)
+        elif choice == sales_items[3]:
+            night_vs_day_ratio(df)
+        elif choice == sales_items[4]:
+            global_day_vs_night(df)
+        elif choice == sales_items[5]:
+            second_highest_channel_share(df)
+        elif choice == sales_items[6]:
+            bottom_30_2nd_highest(df)
+        elif choice == sales_items[7]:
+            stores_sales_summary(df)
 
-    # Till_Code
-    if 'TILL' in d.columns and 'STORE_CODE' in d.columns:
-        d['Till_Code'] = d['TILL'].astype(str) + '-' + d['STORE_CODE'].astype(str)
+        # Trend strip for SALES
+        show_trends(df, section)
 
-    # CASHIER-COUNT
-    if 'STORE_NAME' in d.columns and 'CASHIER' in d.columns:
-        d['CASHIER-COUNT'] = d['CASHIER'].astype(str) + '-' + d['STORE_NAME'].astype(str)
+    # -----------------------
+    # OPERATIONS
+    # -----------------------
+    elif section == "OPERATIONS":
+        ops_items = [
+            "Customer Traffic-Storewise",
+            "Active Tills During the day",
+            "Average Customers Served per Till",
+            "Store Customer Traffic Storewise",
+            "Customer Traffic-Departmentwise",
+            "Cashiers Perfomance",
+            "Till Usage",
+            "Tax Compliance"
+        ]
+        choice = st.sidebar.selectbox("Operations Subsection", ops_items)
 
-    # Shift bucket
-    if 'SHIFT' in d.columns:
-        d['Shift_Bucket'] = np.where(
-            d['SHIFT'].str.upper().str.contains('NIGHT', na=False),
-            'Night',
-            'Day'
-        )
+        if choice == ops_items[0]:
+            customer_traffic_storewise(df)
+        elif choice == ops_items[1]:
+            active_tills_during_day(df)
+        elif choice == ops_items[2]:
+            avg_customers_per_till(df)
+        elif choice == ops_items[3]:
+            store_customer_traffic_storewise(df)
+        elif choice == ops_items[4]:
+            customer_traffic_departmentwise(df)
+        elif choice == ops_items[5]:
+            cashiers_performance(df)
+        elif choice == ops_items[6]:
+            till_usage(df)
+        elif choice == ops_items[7]:
+            tax_compliance(df)
 
-    if 'SP_PRE_VAT' in d.columns:
-        d['SP_PRE_VAT'] = d['SP_PRE_VAT'].astype(float)
-    if 'NET_SALES' in d.columns:
-        d['NET_SALES'] = d['NET_SALES'].astype(float)
+        # Trend strip for OPERATIONS
+        show_trends(df, section)
 
-    return d
+    # -----------------------
+    # INSIGHTS
+    # -----------------------
+    elif section == "INSIGHTS":
+        ins_items = [
+            "Customer Baskets Overview",
+            "Global Category Overview-Sales",
+            "Global Category Overview-Baskets",
+            "Supplier Contribution",
+            "Category Overview",
+            "Branch Comparison",
+            "Product Perfomance",
+            "Global Loyalty Overview",
+            "Branch Loyalty Overview",
+            "Customer Loyalty Overview",
+            "Global Pricing Overview",
+            "Branch Pricing Overview",
+            "Global Refunds Overview",
+            "Branch Refunds Overview"
+        ]
+        choice = st.sidebar.selectbox("Insights Subsection", ins_items)
 
-# =========================================================
-#  SMALL HELPERS (same as your script)
-# =========================================================
-@st.cache_data
-def agg_net_sales_by(df: pd.DataFrame, col: str) -> pd.DataFrame:
-    if col not in df.columns:
-        return pd.DataFrame(columns=[col, 'NET_SALES'])
-    g = df.groupby(col, as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
-    return g
+        if choice == ins_items[0]:
+            customer_baskets_overview(df)
+        elif choice == ins_items[1]:
+            global_category_overview_sales(df)
+        elif choice == ins_items[2]:
+            global_category_overview_baskets(df)
+        elif choice == ins_items[3]:
+            supplier_contribution(df)
+        elif choice == ins_items[4]:
+            category_overview(df)
+        elif choice == ins_items[5]:
+            branch_comparison(df)
+        elif choice == ins_items[6]:
+            product_performance(df)
+        elif choice == ins_items[7]:
+            global_loyalty_overview(df)
+        elif choice == ins_items[8]:
+            branch_loyalty_overview(df)
+        elif choice == ins_items[9]:
+            customer_loyalty_overview(df)
+        elif choice == ins_items[10]:
+            global_pricing_overview(df)
+        elif choice == ins_items[11]:
+            branch_pricing_overview(df)
+        elif choice == ins_items[12]:
+            global_refunds_overview(df)
+        elif choice == ins_items[13]:
+            branch_refunds_overview(df)
 
-@st.cache_data
-def agg_count_distinct(df: pd.DataFrame, group_by: list, agg_col: str, agg_name: str) -> pd.DataFrame:
-    g = df.groupby(group_by).agg({agg_col: pd.Series.nunique}).reset_index().rename(columns={agg_col: agg_name})
-    return g
+        # Trend strip for INSIGHTS
+        show_trends(df, section)
 
-def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None,
-                       index_col: str | None = None, total_label: str = 'TOTAL'):
-    # (you can paste your existing format_and_display body here – unchanged)
-    ...
-    # [KEEP YOUR ORIGINAL IMPLEMENTATION]
-    # -----------------------------------
 
-def donut_from_agg(df_agg, label_col, value_col, title,
-                   hole=0.55, colors=None,
-                   legend_title=None, value_is_millions=False):
-    # (same body as in your script – unchanged)
-    ...
+if __name__ == "__main__":
+    main()
