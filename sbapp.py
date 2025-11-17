@@ -66,14 +66,14 @@ def clean_and_prepare(df: pd.DataFrame) -> pd.DataFrame:
 
     d = df.copy()
 
-    # Convert date fields
+    # Convert dates
     d["TRN_DATE"] = pd.to_datetime(d["TRN_DATE"], errors="coerce")
     d = d.dropna(subset=["TRN_DATE"]).copy()
     d["DATE"] = d["TRN_DATE"].dt.date
     d["TIME_INTERVAL"] = d["TRN_DATE"].dt.floor("30min")
     d["TIME_ONLY"] = d["TIME_INTERVAL"].dt.time
 
-    # Convert numerics
+    # Convert numeric fields
     num_cols = ["QTY", "SP_PRE_VAT", "NET_SALES", "VAT_AMT"]
     for c in num_cols:
         if c in d.columns:
@@ -93,7 +93,7 @@ def clean_and_prepare(df: pd.DataFrame) -> pd.DataFrame:
             d["RCT"].astype(str)
         )
 
-    # Day/Night
+    # Day/Night shift bucket
     if "SHIFT" in d.columns:
         d["Shift_Bucket"] = np.where(
             d["SHIFT"].str.contains("NIGHT", case=False, na=False),
@@ -104,7 +104,7 @@ def clean_and_prepare(df: pd.DataFrame) -> pd.DataFrame:
 
 
 ################################################################
-# 4. GENERIC TREND PANEL BELOW EACH SUBSECTION
+# 4. GENERIC TREND PANEL
 ################################################################
 
 def show_trends(df: pd.DataFrame, section: str):
@@ -116,9 +116,9 @@ def show_trends(df: pd.DataFrame, section: str):
         st.info("No data available for trends.")
         return
 
-    # Daily sales
     col1, col2 = st.columns(2)
 
+    # Universal daily net sales trend
     with col1:
         if "NET_SALES" in df.columns:
             daily = df.groupby("DATE", as_index=False)["NET_SALES"].sum()
@@ -160,7 +160,7 @@ def show_trends(df: pd.DataFrame, section: str):
 
 
 ################################################################
-# 5. SALES / OPS / INSIGHTS FUNCTIONS
+# 5. SALES / OPERATIONS / INSIGHTS SUBSECTIONS
 ################################################################
 
 def sales_global_overview(df):
@@ -239,7 +239,7 @@ def main():
     st.title("📊 DailyDeck — Multi-Day Retail Performance Dashboard")
 
     ###############################################################
-    # Sidebar: Date Range (Supabase-only)
+    # Sidebar: Date Range
     ###############################################################
 
     st.sidebar.markdown("### Select Date Range")
