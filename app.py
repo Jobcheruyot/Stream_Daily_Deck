@@ -2397,10 +2397,104 @@ def main():
     with st.spinner("Preparing data (cached) ..."):
         df = clean_and_derive(raw_df)
 
-    section = st.sidebar.selectbox(
-        "Section",
-        ["SALES", "OPERATIONS", "INSIGHTS"]
-    )
+# Remove the sidebar and create a bottom container
+st.markdown("---")  # Add a divider
+
+# Create a container for the bottom navigation
+bottom_container = st.container()
+
+with bottom_container:
+    st.markdown("### Navigation")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        section = st.selectbox(
+            "Section",
+            ["SALES", "OPERATIONS", "INSIGHTS"]
+        )
+    
+    with col2:
+        # Section-specific subsections
+        if section == "SALES":
+            sales_items = [
+                "Global sales Overview",
+                "Global Net Sales Distribution by Sales Channel", 
+                "Global Net Sales Distribution by SHIFT",
+                "Night vs Day Shift Sales Ratio — Stores with Night Shifts",
+                "Global Day vs Night Sales — Only Stores with NIGHT Shift",
+                "2nd-Highest Channel Share",
+                "Bottom 30 — 2nd Highest Channel",
+                "Stores Sales Summary"
+            ]
+            choice = st.selectbox("Sales Subsection", sales_items)
+            
+        elif section == "OPERATIONS":
+            ops_items = [
+                "Customer Traffic-Storewise",
+                "Active Tills During the day", 
+                "Average Customers Served per Till",
+                "Store Customer Traffic Storewise",
+                "Customer Traffic-Departmentwise",
+                "Cashiers Perfomance",
+                "Till Usage",
+                "Tax Compliance"
+            ]
+            choice = st.selectbox("Operations Subsection", ops_items)
+            
+        elif section == "INSIGHTS":
+            ins_items = [
+                "Customer Baskets Overview",
+                "Global Category Overview-Sales",
+                "Global Category Overview-Baskets", 
+                "Supplier Contribution",
+                "Category Overview",
+                "Branch Comparison",
+                "Product Perfomance",
+                "Global Loyalty Overview",
+                "Branch Loyalty Overview",
+                "Customer Loyalty Overview",
+                "Global Pricing Overview",
+                "Branch Pricing Overview", 
+                "Global Refunds Overview",
+                "Branch Refunds Overview"
+            ]
+            choice = st.selectbox("Insights Subsection", ins_items)
+    
+    with col3:
+        # You can add additional controls here if needed
+        st.info(f"Current: {section} - {choice}")
+
+# Also need to move the file uploader to the bottom
+st.markdown("---")
+upload_col1, upload_col2 = st.columns([3, 1])
+
+with upload_col1:
+    st.markdown("### Data Source")
+    
+with upload_col2:
+    # Move the upload functionality to bottom
+    st.markdown("### Upload New Data")
+    uploaded = st.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=['csv'], label_visibility="collapsed")
+
+# Update the smart_load function to use the bottom uploader
+def smart_load():
+    # Use the uploaded file from bottom if available
+    if uploaded is not None:
+        with st.spinner("Parsing uploaded CSV..."):
+            df = load_uploaded_file(uploaded.getvalue())
+        st.success("✅ Loaded uploaded CSV")
+        return df
+
+    # try default path (optional)
+    default_path = "/content/DAILY_POS_TRN_ITEMS_2025-10-21.csv"
+    try:
+        with st.spinner(f"Loading default CSV: {default_path}"):
+            df = load_csv(default_path)
+        st.info(f"📁 Loaded default path: {default_path}")
+        return df
+    except Exception:
+        st.warning("⚠️ No default CSV found. Please upload a CSV to run the app.")
+        return None
 
     if section == "SALES":
         sales_items = [
