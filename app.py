@@ -15,12 +15,16 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # -----------------------
 @st.cache_data
 def load_csv(path: str) -> pd.DataFrame:
-    return pd.read_csv(path, on_bad_lines='skip', low_memory=False)
+    import duckdb
+    return duckdb.query(f"SELECT * FROM read_csv_auto('{path}')").to_df()
 
 @st.cache_data
 def load_uploaded_file(contents: bytes) -> pd.DataFrame:
+    import duckdb
     from io import BytesIO
-    return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
+    temp_buffer = BytesIO(contents)
+    return duckdb.query("SELECT * FROM read_csv_auto(temp_buffer)").to_df()
+
 
 def smart_load():
     st.sidebar.markdown("### Upload data (CSV) or use default")
