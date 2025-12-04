@@ -4,7 +4,6 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
-import duckdb
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
@@ -16,16 +15,12 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # -----------------------
 @st.cache_data
 def load_csv(path: str) -> pd.DataFrame:
-    import duckdb
-    return duckdb.query(f"SELECT * FROM read_csv_auto('{path}')").to_df()
+    return pd.read_csv(path, on_bad_lines='skip', low_memory=False)
 
 @st.cache_data
 def load_uploaded_file(contents: bytes) -> pd.DataFrame:
-    import duckdb
     from io import BytesIO
-    temp_buffer = BytesIO(contents)
-    return duckdb.query("SELECT * FROM read_csv_auto(temp_buffer)").to_df()
-
+    return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
 
 def smart_load():
     st.sidebar.markdown("### Upload data (CSV) or use default")
