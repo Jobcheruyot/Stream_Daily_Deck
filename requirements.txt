@@ -8,3 +8,8 @@ pyyaml>=6.0
 supabase>=2.0.0
 python-dotenv>=1.0.0
 duckdb==1.0.0
+streamlit>=1.32
+pandas>=2.0
+numpy>=1.24
+plotly>=5.15
+openpyxl>=3.1
