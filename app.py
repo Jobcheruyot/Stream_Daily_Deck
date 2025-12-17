@@ -15,25 +15,7 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # -----------------------
 @st.cache_data
 def load_csv(path: str) -> pd.DataFrame:
-    return @st.cache_data(show_spinner=False)
-def load_csv_chunked(path: str, chunksize=250_000):
-    chunks = []
-    for chunk in pd.read_csv(
-        path,
-        chunksize=chunksize,
-        on_bad_lines='skip',
-        low_memory=True
-    ):
-        # keep only columns you actually use
-        keep_cols = [
-            'TRN_DATE','STORE_NAME','STORE_CODE','TILL','SESSION','RCT',
-            'NET_SALES','VAT_AMT','QTY','SHIFT','ITEM_CODE','ITEM_NAME',
-            'CATEGORY','DEPARTMENT','CASHIER'
-        ]
-        chunk = chunk[[c for c in keep_cols if c in chunk.columns]]
-        chunks.append(chunk)
-    return pd.concat(chunks, ignore_index=True)
-
+    return pd.read_csv(path, on_bad_lines='skip', low_memory=False)
 
 @st.cache_data
 def load_uploaded_file(contents: bytes) -> pd.DataFrame:
