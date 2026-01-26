@@ -1,7 +1,3 @@
-streamlit>=1.18
-pandas>=1.5
-numpy>=1.24
-plotly>=5.0
-boto3>=1.26
-openpyxl>=3.0
-pyyaml>=6.0
+duckdb>=1.0
+
+# (Add other requirements as needed in your environment)
