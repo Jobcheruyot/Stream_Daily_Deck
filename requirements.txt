@@ -1,3 +1,10 @@
-duckdb>=1.0
-
-# (Add other requirements as needed in your environment)
+streamlit==1.53.1
+pandas==2.3.3
+numpy==2.4.1
+plotly==6.5.2
+duckdb==1.4.3
+pyarrow==23.0.0
+python-dateutil==2.9.0.post0
+pytz==2025.2
+openpyxl==3.1.5
+requests==2.32.5
