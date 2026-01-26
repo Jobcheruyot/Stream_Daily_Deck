@@ -1,2 +1,2 @@
-# Minimal config (only upload size) - keep this minimal on Streamlit Cloud
-server.maxUploadSize = 1024
+[server]
+maxUploadSize = 1024
