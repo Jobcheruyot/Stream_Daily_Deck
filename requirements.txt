@@ -1,10 +1,23 @@
-streamlit==1.53.1
-pandas==2.3.3
-numpy==2.4.1
-plotly==6.5.2
-duckdb==1.4.3
-pyarrow==23.0.0
+# Core UI
+streamlit==1.38.0
+
+# Data engine (BIG DATA SAFE)
+duckdb==1.0.0
+
+# Data processing
+pandas==2.1.4
+numpy==1.26.4
+
+# Columnar + Big file support
+pyarrow==14.0.2
+
+# Visualization
+plotly==5.18.0
+
+# Time & parsing
 python-dateutil==2.9.0.post0
-pytz==2025.2
+pytz==2024.2
+
+# Excel + HTTP
 openpyxl==3.1.5
-requests==2.32.5
+requests==2.32.3
