@@ -1,17 +1,4 @@
-# Stream_Daily_Deck – Big Data Safe Runtime
-# Supports 1GB+ data via DuckDB + Arrow
-# Python 3.10 / 3.11 ONLY
-
 streamlit==1.38.0
-duckdb==1.0.0
-
 pandas==2.1.4
-numpy==1.26.4
-pyarrow==14.0.2
-
-plotly==5.18.0
-
-python-dateutil==2.9.0.post0
-pytz==2024.2
-openpyxl==3.1.5
-requests==2.32.3
+duckdb==1.0.0
+pyarrow==14.0.1
