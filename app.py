@@ -7,6 +7,8 @@ from datetime import timedelta
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # Add the following at the very top of your Streamlit script, AFTER st.set_page_config
+st.set_option("dataframe.convertArrow", False)
+
 
 
 
