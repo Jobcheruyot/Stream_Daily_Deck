@@ -13,7 +13,7 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # -----------------------
 # Data Loading & Caching
 # -----------------------
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=3600)
 def load_csv(path: str) -> pd.DataFrame:
     chunks = []
     chunk_size = 500_000
@@ -30,7 +30,7 @@ def load_csv(path: str) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=3600)
 def load_uploaded_file(contents: bytes) -> pd.DataFrame:
     from io import BytesIO
 
@@ -74,7 +74,7 @@ def smart_load():
 # -----------------------
 # Robust cleaning + derived columns (cached)
 # -----------------------
-@st.cache_data
+@st.cache_data(show_spinner=False, ttl=3600)
 def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
     if df is None:
         return df
@@ -152,14 +152,14 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
 # -----------------------
 # Small cached aggregation helpers
 # -----------------------
-@st.cache_data
+@st.cache_data(show_spinner=False, ttl=3600)
 def agg_net_sales_by(df: pd.DataFrame, col: str) -> pd.DataFrame:
     if col not in df.columns:
         return pd.DataFrame(columns=[col, 'NET_SALES'])
     g = df.groupby(col, as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
     return g
 
-@st.cache_data
+@st.cache_data(show_spinner=False, ttl=3600)
 def agg_count_distinct(df: pd.DataFrame, group_by: list, agg_col: str, agg_name: str) -> pd.DataFrame:
     g = df.groupby(group_by).agg({agg_col: pd.Series.nunique}).reset_index().rename(columns={agg_col: agg_name})
     return g
