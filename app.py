@@ -13,14 +13,43 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # -----------------------
 # Data Loading & Caching
 # -----------------------
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_csv(path: str) -> pd.DataFrame:
-    return pd.read_csv(path, on_bad_lines='skip', low_memory=False)
+    chunks = []
+    chunk_size = 500_000
 
-@st.cache_data
+    for chunk in pd.read_csv(
+        path,
+        on_bad_lines='skip',
+        low_memory=True,
+        chunksize=chunk_size
+    ):
+        chunks.append(chunk)
+
+    df = pd.concat(chunks, ignore_index=True)
+    return df
+
+
+@st.cache_data(show_spinner=False)
 def load_uploaded_file(contents: bytes) -> pd.DataFrame:
     from io import BytesIO
-    return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
+
+    chunks = []
+    chunk_size = 500_000   # Adjust if needed
+
+    file_buffer = BytesIO(contents)
+
+    for chunk in pd.read_csv(
+        file_buffer,
+        on_bad_lines='skip',
+        low_memory=True,
+        chunksize=chunk_size
+    ):
+        chunks.append(chunk)
+
+    df = pd.concat(chunks, ignore_index=True)
+    return df
+
 
 def smart_load():
     st.sidebar.markdown("### Upload data (CSV) or use default")
