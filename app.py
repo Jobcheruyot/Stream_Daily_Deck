@@ -1,74 +1,41 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import timedelta
+import dask.dataframe as dd  # Using Dask for handling large data
+from io import BytesIO
 
 st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
-# Add the following at the very top of your Streamlit script, AFTER st.set_page_config
-
-
 
 # -----------------------
 # Data Loading & Caching
 # -----------------------
 @st.cache_data(show_spinner=False, ttl=3600)
-def load_csv(path: str) -> pd.DataFrame:
-    chunks = []
-    chunk_size = 500_000
-
-    for chunk in pd.read_csv(
-        path,
-        on_bad_lines='skip',
-        low_memory=True,
-        chunksize=chunk_size
-    ):
-        chunks.append(chunk)
-
-    df = pd.concat(chunks, ignore_index=True)
-    return df
-
+def load_csv(path: str) -> dd.DataFrame:
+    return dd.read_csv(path, on_bad_lines='skip', low_memory=True)
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def load_uploaded_file(contents: bytes) -> pd.DataFrame:
-    from io import BytesIO
-
-    chunks = []
-    chunk_size = 500_000   # Adjust if needed
-
+def load_uploaded_file(contents: bytes) -> dd.DataFrame:
     file_buffer = BytesIO(contents)
-
-    for chunk in pd.read_csv(
-        file_buffer,
-        on_bad_lines='skip',
-        low_memory=True,
-        chunksize=chunk_size
-    ):
-        chunks.append(chunk)
-
-    df = pd.concat(chunks, ignore_index=True)
-    return df
-
+    return dd.read_csv(file_buffer, on_bad_lines='skip', low_memory=True)
 
 def smart_load():
     st.sidebar.markdown("### Upload data (CSV) or use default")
     uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=['csv'])
+    
     if uploaded is not None:
         with st.spinner("Parsing uploaded CSV..."):
             df = load_uploaded_file(uploaded.getvalue())
         st.sidebar.success("Loaded uploaded CSV")
         return df
 
-    # try default path (optional)
+    # Try default path (optional)
     default_path = "/content/DAILY_POS_TRN_ITEMS_2025-10-21.csv"
     try:
         with st.spinner(f"Loading default CSV: {default_path}"):
             df = load_csv(default_path)
         st.sidebar.info(f"Loaded default path: {default_path}")
         return df
-    except Exception:
+    except Exception as e:
         st.sidebar.warning("No default CSV found. Please upload a CSV to run the app.")
+        st.error(f"Error: {str(e)}")
         return None
 
 # -----------------------
