@@ -1,13 +1,23 @@
+# Updated sbapp.py
+
 import numpy as np
 
-def format_and_display(data):
-    # Replace use_container_width=True with width='stretch'
-    # Replace use_container_width=False with width='content'
-    data = data.replace(use_container_width=True, width='stretch')
-    data = data.replace(use_container_width=False, width='content')
+# Original function definitions
+...
 
-    # Change empty string assignments to np.nan for numeric columns
-    for column in data.select_dtypes(include='number').columns:
-        data[column].replace('', np.nan, inplace=True)
+# Update instances of use_container_width
+# Replace `use_container_width=True` to `width='stretch'`
+# Replace `use_container_width=False` to `width='content'`
 
-    return data
+# Example of what it might change to
+# st.container(use_container_width=True) -> st.container(width='stretch')
+
+# In the format_and_display function, modify how totals are set
+
+def format_and_display(totals, col):
+    if col in numeric_columns:
+        totals[col] = np.nan  # Changed from '' to np.nan
+    else:
+        totals[col] = ''
+
+# Continue with the rest of the code...
