@@ -1606,41 +1606,72 @@ def category_overview(df):
 
 def branch_comparison(df):
     st.header("Branch Comparison")
+
     branches = sorted(df['STORE_NAME'].unique())
     if len(branches) < 1:
         st.info("No branches")
         return
+
     col1, col2 = st.columns(2)
     with col1:
         a = st.selectbox("Branch A", branches, index=0)
     with col2:
         b = st.selectbox("Branch B", branches, index=1 if len(branches) > 1 else 0)
+
     metric = st.selectbox("Metric", ['QTY', 'NET_SALES'])
     top_x = st.number_input("Top X", min_value=5, max_value=200, value=10)
 
-    def top_items(branch):
+    # ---- Step 1: Get top X item names for each branch ----
+    def get_top_item_names(branch):
         temp = df[df['STORE_NAME'] == branch]
-        baskets = temp.groupby('ITEM_NAME')['CUST_CODE'].nunique().rename(
-            'Count_of_Baskets'
-        )
-        totals = temp.groupby('ITEM_NAME')[['QTY', 'NET_SALES']].sum()
-        merged = (
-            baskets.to_frame()
-            .join(totals, how='outer')
-            .fillna(0)
-            .reset_index()
+        totals = (
+            temp.groupby('ITEM_NAME')[['QTY', 'NET_SALES']]
+            .sum()
             .sort_values(metric, ascending=False)
             .head(int(top_x))
         )
-        merged.insert(0, '#', range(1, len(merged) + 1))
+        return set(totals.index)
+
+    top_items_a = get_top_item_names(a)
+    top_items_b = get_top_item_names(b)
+
+    # ---- Step 2: Union of items ----
+    comparison_items = list(top_items_a.union(top_items_b))
+
+    # ---- Step 3: Recalculate totals for BOTH branches on same item set ----
+    def calculate_branch_totals(branch):
+        temp = df[
+            (df['STORE_NAME'] == branch) &
+            (df['ITEM_NAME'].isin(comparison_items))
+        ]
+
+        baskets = temp.groupby('ITEM_NAME')['CUST_CODE'].nunique().rename('Count_of_Baskets')
+        totals = temp.groupby('ITEM_NAME')[['QTY', 'NET_SALES']].sum()
+
+        merged = (
+            pd.DataFrame(index=comparison_items)
+            .join(baskets, how='left')
+            .join(totals, how='left')
+            .fillna(0)
+            .reset_index()
+            .rename(columns={'index': 'ITEM_NAME'})
+        )
+
+        merged['Branch'] = branch
+
         return merged
 
-    topA = top_items(a)
-    topB = top_items(b)
-    combined = pd.concat(
-        [topA.assign(Branch=a), topB.assign(Branch=b)],
-        ignore_index=True
+    branchA_data = calculate_branch_totals(a)
+    branchB_data = calculate_branch_totals(b)
+
+    combined = pd.concat([branchA_data, branchB_data], ignore_index=True)
+
+    # ---- Step 4: Remove items where BOTH branches have zero ----
+    combined = combined.groupby('ITEM_NAME').filter(
+        lambda x: x[metric].sum() > 0
     )
+
+    # ---- Step 5: Plot ----
     fig = px.bar(
         combined,
         x=metric,
@@ -1651,18 +1682,22 @@ def branch_comparison(df):
         barmode='group',
         title=f"Branch Comparison — {a} vs {b}"
     )
+
     fig.update_traces(textposition='outside')
     st.plotly_chart(fig, use_container_width=True)
-    st.subheader(f"{a} Top Items")
+
+    # ---- Tables ----
+    st.subheader(f"{a} Items in Comparison")
     format_and_display(
-        topA,
+        branchA_data,
         numeric_cols=['Count_of_Baskets', 'QTY', 'NET_SALES'],
         index_col='ITEM_NAME',
         total_label='TOTAL'
     )
-    st.subheader(f"{b} Top Items")
+
+    st.subheader(f"{b} Items in Comparison")
     format_and_display(
-        topB,
+        branchB_data,
         numeric_cols=['Count_of_Baskets', 'QTY', 'NET_SALES'],
         index_col='ITEM_NAME',
         total_label='TOTAL'
