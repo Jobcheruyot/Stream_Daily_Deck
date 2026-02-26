@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -1882,7 +1881,6 @@ def product_performance(df):
 
 def global_loyalty_overview(df):
     st.header("Global Loyalty Overview")
-
     required = [
         'TRN_DATE', 'STORE_NAME', 'CUST_CODE',
         'LOYALTY_CUSTOMER_CODE', 'NET_SALES'
@@ -1911,9 +1909,6 @@ def global_loyalty_overview(df):
         .str.len() > 0
     ].copy()
 
-    # -------------------------------------------------------
-    # Build receipt-level aggregation
-    # -------------------------------------------------------
     receipts = (
         dfL.groupby(
             ['STORE_NAME', 'CUST_CODE', 'LOYALTY_CUSTOMER_CODE'],
@@ -1925,9 +1920,6 @@ def global_loyalty_overview(df):
         )
     )
 
-    # -------------------------------------------------------
-    # Customer performance inside each store
-    # -------------------------------------------------------
     per_branch_multi = receipts.groupby(
         ['STORE_NAME', 'LOYALTY_CUSTOMER_CODE']
     ).agg(
@@ -1935,21 +1927,10 @@ def global_loyalty_overview(df):
         Total_Value_in_Store=('Basket_Value', 'sum')
     ).reset_index()
 
-    # 🔹 NEW: Highest earn frequency per store
-    highest_freq = (
-        per_branch_multi.groupby('STORE_NAME')['Baskets_in_Store']
-        .max()
-        .reset_index(name='HIGHEST_EARN_FREQUENCY_IN_STORE')
-    )
-
-    # Keep only multi-basket customers (your original logic)
     per_branch_multi = per_branch_multi[
         per_branch_multi['Baskets_in_Store'] > 1
     ]
 
-    # -------------------------------------------------------
-    # Store overview
-    # -------------------------------------------------------
     overview = per_branch_multi.groupby(
         'STORE_NAME', as_index=False
     ).agg(
@@ -1973,16 +1954,6 @@ def global_loyalty_overview(df):
         0.0
     )
 
-    # 🔹 Merge highest frequency into final overview
-    overview = overview.merge(
-        highest_freq,
-        on='STORE_NAME',
-        how='left'
-    )
-
-    # -------------------------------------------------------
-    # Display
-    # -------------------------------------------------------
     format_and_display(
         overview.sort_values(
             'Loyal_Customers_Multi', ascending=False
@@ -1991,12 +1962,12 @@ def global_loyalty_overview(df):
             'Loyal_Customers_Multi',
             'Total_Baskets_of_Those',
             'Total_Value_of_Those',
-            'Avg_Baskets_per_Customer',
-            'HIGHEST_EARN_FREQUENCY_IN_STORE'
+            'Avg_Baskets_per_Customer'
         ],
         index_col='STORE_NAME',
         total_label='TOTAL'
     )
+
 def branch_loyalty_overview(df):
     st.header("Branch Loyalty Overview (per-branch loyal customers with >1 baskets)")
     if not all(
