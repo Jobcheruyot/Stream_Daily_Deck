@@ -16,7 +16,7 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 @st.cache_data(show_spinner=False, ttl=3600)
 def load_csv(path: str) -> pd.DataFrame:
     chunks = []
-    chunk_size = 500_000
+    chunk_size = 100_000
 
     for chunk in pd.read_csv(
         path,
@@ -1903,6 +1903,59 @@ def global_loyalty_overview(df):
         dfL['NET_SALES'], errors='coerce'
     ).fillna(0)
 
+def loyalty_frequency_report(df):
+
+    st.header("🏆 Loyalty Frequency Report (Per Store)")
+
+    required = [
+        'STORE_NAME',
+        'LOYALTY_CUSTOMER_CODE'
+    ]
+
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        st.warning(
+            f"Missing required columns for Loyalty Frequency Report: {missing}"
+        )
+        return
+
+    dfL = df.copy()
+
+    # Clean
+    for c in ['STORE_NAME', 'LOYALTY_CUSTOMER_CODE']:
+        dfL[c] = dfL[c].astype(str).str.strip()
+
+    dfL = dfL.dropna(subset=['STORE_NAME', 'LOYALTY_CUSTOMER_CODE'])
+
+    # ---------------------------------------
+    # Frequency per customer per store
+    # ---------------------------------------
+    freq = (
+        dfL.groupby(['STORE_NAME', 'LOYALTY_CUSTOMER_CODE'])
+        .size()
+        .reset_index(name='EARN_FREQUENCY')
+    )
+
+    # ---------------------------------------
+    # Get highest frequency per store
+    # ---------------------------------------
+    highest = (
+        freq.sort_values(['STORE_NAME', 'EARN_FREQUENCY'], ascending=[True, False])
+        .groupby('STORE_NAME')
+        .first()
+        .reset_index()
+    )
+
+    highest.rename(columns={
+        'LOYALTY_CUSTOMER_CODE': 'TOP_CUSTOMER_IN_STORE',
+        'EARN_FREQUENCY': 'HIGHEST_EARN_FREQUENCY'
+    }, inplace=True)
+
+    st.dataframe(highest, use_container_width=True)
+
+
+    
+
     dfL = dfL[
         dfL['LOYALTY_CUSTOMER_CODE']
         .replace({'nan': '', 'NaN': '', 'None': ''})
@@ -2575,4 +2628,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
