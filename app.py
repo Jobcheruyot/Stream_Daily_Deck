@@ -1881,10 +1881,12 @@ def product_performance(df):
 
 def global_loyalty_overview(df):
     st.header("Global Loyalty Overview")
+
     required = [
         'TRN_DATE', 'STORE_NAME', 'CUST_CODE',
         'LOYALTY_CUSTOMER_CODE', 'NET_SALES'
     ]
+
     missing = [c for c in required if c not in df.columns]
     if missing:
         st.warning(
@@ -1893,6 +1895,7 @@ def global_loyalty_overview(df):
         return
 
     dfL = df.copy()
+
     dfL['TRN_DATE'] = pd.to_datetime(dfL['TRN_DATE'], errors='coerce')
     dfL = dfL.dropna(subset=['TRN_DATE', 'STORE_NAME', 'CUST_CODE'])
 
@@ -1903,10 +1906,7 @@ def global_loyalty_overview(df):
         dfL['NET_SALES'], errors='coerce'
     ).fillna(0)
 
-    # -------------------------------------------------
-    # 🔹 Additional Column: Highest Earn Frequency Per Store
-    # -------------------------------------------------
-
+    # 🔹 Highest Earn Frequency Per Store
     dfL['HIGHEST_EARN_FREQUENCY_IN_STORE'] = (
         dfL.groupby(['STORE_NAME', 'LOYALTY_CUSTOMER_CODE'])
         ['LOYALTY_CUSTOMER_CODE']
@@ -1915,9 +1915,8 @@ def global_loyalty_overview(df):
         .transform('max')
     )
 
-    return dfL
-
-    dfL = dfL[
+    # ✅ DISPLAY (This was missing)
+    st.dataframe(dfL.head(100), use_container_width=True)
         dfL['LOYALTY_CUSTOMER_CODE']
         .replace({'nan': '', 'NaN': '', 'None': ''})
         .str.len() > 0
