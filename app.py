@@ -16,7 +16,7 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 @st.cache_data(show_spinner=False, ttl=3600)
 def load_csv(path: str) -> pd.DataFrame:
     chunks = []
-    chunk_size = 100_000
+    chunk_size = 500_000
 
     for chunk in pd.read_csv(
         path,
