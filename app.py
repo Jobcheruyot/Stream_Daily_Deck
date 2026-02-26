@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -1902,20 +1903,6 @@ def global_loyalty_overview(df):
     dfL['NET_SALES'] = pd.to_numeric(
         dfL['NET_SALES'], errors='coerce'
     ).fillna(0)
-
-    # -------------------------------------------------
-    # 🔹 Additional Column: Highest Earn Frequency Per Store
-    # -------------------------------------------------
-
-    dfL['HIGHEST_EARN_FREQUENCY_IN_STORE'] = (
-        dfL.groupby(['STORE_NAME', 'LOYALTY_CUSTOMER_CODE'])
-        ['LOYALTY_CUSTOMER_CODE']
-        .transform('count')
-        .groupby(dfL['STORE_NAME'])
-        .transform('max')
-    )
-
-    return dfL
 
     dfL = dfL[
         dfL['LOYALTY_CUSTOMER_CODE']
