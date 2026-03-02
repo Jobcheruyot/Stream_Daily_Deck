@@ -13,43 +13,14 @@ st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
 # -----------------------
 # Data Loading & Caching
 # -----------------------
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data
 def load_csv(path: str) -> pd.DataFrame:
-    chunks = []
-    chunk_size = 100_000
+    return pd.read_csv(path, on_bad_lines='skip', low_memory=False)
 
-    for chunk in pd.read_csv(
-        path,
-        on_bad_lines='skip',
-        low_memory=True,
-        chunksize=chunk_size
-    ):
-        chunks.append(chunk)
-
-    df = pd.concat(chunks, ignore_index=True)
-    return df
-
-
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data
 def load_uploaded_file(contents: bytes) -> pd.DataFrame:
     from io import BytesIO
-
-    chunks = []
-    chunk_size = 500_000   # Adjust if needed
-
-    file_buffer = BytesIO(contents)
-
-    for chunk in pd.read_csv(
-        file_buffer,
-        on_bad_lines='skip',
-        low_memory=True,
-        chunksize=chunk_size
-    ):
-        chunks.append(chunk)
-
-    df = pd.concat(chunks, ignore_index=True)
-    return df
-
+    return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
 
 def smart_load():
     st.sidebar.markdown("### Upload data (CSV) or use default")
@@ -74,7 +45,7 @@ def smart_load():
 # -----------------------
 # Robust cleaning + derived columns (cached)
 # -----------------------
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data
 def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
     if df is None:
         return df
@@ -152,14 +123,14 @@ def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
 # -----------------------
 # Small cached aggregation helpers
 # -----------------------
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data
 def agg_net_sales_by(df: pd.DataFrame, col: str) -> pd.DataFrame:
     if col not in df.columns:
         return pd.DataFrame(columns=[col, 'NET_SALES'])
     g = df.groupby(col, as_index=False)['NET_SALES'].sum().sort_values('NET_SALES', ascending=False)
     return g
 
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data
 def agg_count_distinct(df: pd.DataFrame, group_by: list, agg_col: str, agg_name: str) -> pd.DataFrame:
     g = df.groupby(group_by).agg({agg_col: pd.Series.nunique}).reset_index().rename(columns={agg_col: agg_name})
     return g
@@ -1606,72 +1577,41 @@ def category_overview(df):
 
 def branch_comparison(df):
     st.header("Branch Comparison")
-
     branches = sorted(df['STORE_NAME'].unique())
     if len(branches) < 1:
         st.info("No branches")
         return
-
     col1, col2 = st.columns(2)
     with col1:
         a = st.selectbox("Branch A", branches, index=0)
     with col2:
         b = st.selectbox("Branch B", branches, index=1 if len(branches) > 1 else 0)
-
     metric = st.selectbox("Metric", ['QTY', 'NET_SALES'])
     top_x = st.number_input("Top X", min_value=5, max_value=200, value=10)
 
-    # ---- Step 1: Get top X item names for each branch ----
-    def get_top_item_names(branch):
+    def top_items(branch):
         temp = df[df['STORE_NAME'] == branch]
-        totals = (
-            temp.groupby('ITEM_NAME')[['QTY', 'NET_SALES']]
-            .sum()
+        baskets = temp.groupby('ITEM_NAME')['CUST_CODE'].nunique().rename(
+            'Count_of_Baskets'
+        )
+        totals = temp.groupby('ITEM_NAME')[['QTY', 'NET_SALES']].sum()
+        merged = (
+            baskets.to_frame()
+            .join(totals, how='outer')
+            .fillna(0)
+            .reset_index()
             .sort_values(metric, ascending=False)
             .head(int(top_x))
         )
-        return set(totals.index)
-
-    top_items_a = get_top_item_names(a)
-    top_items_b = get_top_item_names(b)
-
-    # ---- Step 2: Union of items ----
-    comparison_items = list(top_items_a.union(top_items_b))
-
-    # ---- Step 3: Recalculate totals for BOTH branches on same item set ----
-    def calculate_branch_totals(branch):
-        temp = df[
-            (df['STORE_NAME'] == branch) &
-            (df['ITEM_NAME'].isin(comparison_items))
-        ]
-
-        baskets = temp.groupby('ITEM_NAME')['CUST_CODE'].nunique().rename('Count_of_Baskets')
-        totals = temp.groupby('ITEM_NAME')[['QTY', 'NET_SALES']].sum()
-
-        merged = (
-            pd.DataFrame(index=comparison_items)
-            .join(baskets, how='left')
-            .join(totals, how='left')
-            .fillna(0)
-            .reset_index()
-            .rename(columns={'index': 'ITEM_NAME'})
-        )
-
-        merged['Branch'] = branch
-
+        merged.insert(0, '#', range(1, len(merged) + 1))
         return merged
 
-    branchA_data = calculate_branch_totals(a)
-    branchB_data = calculate_branch_totals(b)
-
-    combined = pd.concat([branchA_data, branchB_data], ignore_index=True)
-
-    # ---- Step 4: Remove items where BOTH branches have zero ----
-    combined = combined.groupby('ITEM_NAME').filter(
-        lambda x: x[metric].sum() > 0
+    topA = top_items(a)
+    topB = top_items(b)
+    combined = pd.concat(
+        [topA.assign(Branch=a), topB.assign(Branch=b)],
+        ignore_index=True
     )
-
-    # ---- Step 5: Plot ----
     fig = px.bar(
         combined,
         x=metric,
@@ -1682,22 +1622,18 @@ def branch_comparison(df):
         barmode='group',
         title=f"Branch Comparison — {a} vs {b}"
     )
-
     fig.update_traces(textposition='outside')
     st.plotly_chart(fig, use_container_width=True)
-
-    # ---- Tables ----
-    st.subheader(f"{a} Items in Comparison")
+    st.subheader(f"{a} Top Items")
     format_and_display(
-        branchA_data,
+        topA,
         numeric_cols=['Count_of_Baskets', 'QTY', 'NET_SALES'],
         index_col='ITEM_NAME',
         total_label='TOTAL'
     )
-
-    st.subheader(f"{b} Items in Comparison")
+    st.subheader(f"{b} Top Items")
     format_and_display(
-        branchB_data,
+        topB,
         numeric_cols=['Count_of_Baskets', 'QTY', 'NET_SALES'],
         index_col='ITEM_NAME',
         total_label='TOTAL'
