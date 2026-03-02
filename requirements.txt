@@ -1,21 +1,27 @@
-# Core (use modern but stable versions)
+# Core dependencies (modern, stable versions that work on Streamlit Cloud 2026)
 streamlit>=1.42.0
 pandas>=2.2.0
 numpy>=1.26.0
 plotly>=5.24.0
 pyarrow>=17.0.0
 
-# Date/time (explicit helps on Cloud)
+# Date/time handling
 python-dateutil>=2.9.0
 pytz>=2024.1
 
-# Optional – only if your code uses them
+# Optional - keep only if your code actually uses these features
 openpyxl>=3.1.0
 requests>=2.32.0
-# boto3>=1.34.0          # uncomment only if using AWS
-# pyyaml>=6.0.0
-# python-dotenv>=1.0.0
-# supabase>=2.0.0        # uncomment only if using Supabase + secrets fixed
 
-# DuckDB – pick ONE version (or remove if not needed)
-duckdb>=1.1.0          # safe modern range – or exact ==1.1.0 if you need specific
+# Supabase - uncomment only after you set secrets correctly
+# supabase>=2.0.0
+# python-dotenv>=1.0.0
+
+# AWS - uncomment only if you use S3 or similar
+# boto3>=1.34.0
+
+# YAML config files - uncomment if needed
+# pyyaml>=6.0.0
+
+# DuckDB - removed conflicting pins; use this only if your code imports duckdb
+# duckdb>=1.1.0
