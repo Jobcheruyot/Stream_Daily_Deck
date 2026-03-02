@@ -18,4 +18,4 @@ requests>=2.32.0
 # supabase>=2.0.0        # uncomment only if using Supabase + secrets fixed
 
 # DuckDB – pick ONE version (or remove if not needed)
-# duckdb>=1.1.0          # safe modern range – or exact ==1.1.0 if you need specific
+duckdb>=1.1.0          # safe modern range – or exact ==1.1.0 if you need specific
