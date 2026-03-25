@@ -4,6 +4,7 @@ pandas>=2.2.0
 numpy>=1.26.0
 plotly>=5.24.0
 pyarrow>=17.0.0
+pyarrow
 
 # Date/time handling
 python-dateutil>=2.9.0
