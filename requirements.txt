@@ -1,28 +1,7 @@
-# Core dependencies (modern, stable versions that work on Streamlit Cloud 2026)
-streamlit>=1.42.0
-pandas>=2.2.0
-numpy>=1.26.0
-plotly>=5.24.0
-pyarrow>=17.0.0
-pyarrow
-
-# Date/time handling
-python-dateutil>=2.9.0
-pytz>=2024.1
-
-# Optional - keep only if your code actually uses these features
-openpyxl>=3.1.0
-requests>=2.32.0
-
-# Supabase - uncomment only after you set secrets correctly
-# supabase>=2.0.0
-# python-dotenv>=1.0.0
-
-# AWS - uncomment only if you use S3 or similar
-# boto3>=1.34.0
-
-# YAML config files - uncomment if needed
-# pyyaml>=6.0.0
-
-# DuckDB - removed conflicting pins; use this only if your code imports duckdb
-# duckdb>=1.1.0
+streamlit==1.53.1
+numpy==1.26.4
+pandas==2.2.3
+pyarrow==14.0.2
+plotly==6.5.2
+duckdb==1.4.3
+openpyxl==3.1.5
