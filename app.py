@@ -1,24 +1,12 @@
-# =========================================================
-# MUST BE FIRST — ABSOLUTELY NOTHING ABOVE THIS
-# =========================================================
 import streamlit as st
-
-st.set_page_config(
-    layout="wide",
-    page_title="Superdeck (Offline)"
-)
-
-# Disable Arrow globally (critical for stability)
-st.set_option("dataframe.convertArrow", False)
-
-# =========================================================
-# Normal imports continue
-# =========================================================
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
+
+st.set_page_config(layout="wide", page_title="Superdeck (Streamlit)")
+# Add the following at the very top of your Streamlit script, AFTER st.set_page_config
 
 
 
@@ -34,39 +22,30 @@ def load_uploaded_file(contents: bytes) -> pd.DataFrame:
     from io import BytesIO
     return pd.read_csv(BytesIO(contents), on_bad_lines='skip', low_memory=False)
 
-import os
-import glob
-
 def smart_load():
-    st.sidebar.markdown("### 📂 Data Source (Offline)")
+    st.sidebar.markdown("### Upload data (CSV) or use default")
+    uploaded = st.sidebar.file_uploader("Upload DAILY_POS_TRN_ITEMS CSV", type=['csv'])
+    if uploaded is not None:
+        with st.spinner("Parsing uploaded CSV..."):
+            df = load_uploaded_file(uploaded.getvalue())
+        st.sidebar.success("Loaded uploaded CSV")
+        return df
 
-    data_dir = st.sidebar.text_input(
-        "CSV Folder Path",
-        "C:/Users/HP/Documents/DailyDeck/data"
-    )
-
-    if not os.path.exists(data_dir):
-        st.sidebar.error("Folder does not exist")
+    # try default path (optional)
+    default_path = "/content/DAILY_POS_TRN_ITEMS_2025-10-21.csv"
+    try:
+        with st.spinner(f"Loading default CSV: {default_path}"):
+            df = load_csv(default_path)
+        st.sidebar.info(f"Loaded default path: {default_path}")
+        return df
+    except Exception:
+        st.sidebar.warning("No default CSV found. Please upload a CSV to run the app.")
         return None
-
-    files = glob.glob(os.path.join(data_dir, "*.csv"))
-    if not files:
-        st.sidebar.error("No CSV files found in folder")
-        return None
-
-    with st.spinner(f"Loading {len(files)} CSV files..."):
-        df = pd.concat(
-            (pd.read_csv(f, on_bad_lines='skip', low_memory=False) for f in files),
-            ignore_index=True
-        )
-
-    st.sidebar.success(f"Loaded {len(df):,} rows from {len(files)} files")
-    return df
 
 # -----------------------
 # Robust cleaning + derived columns (cached)
 # -----------------------
-@st.cache_resource
+@st.cache_data
 def clean_and_derive(df: pd.DataFrame) -> pd.DataFrame:
     if df is None:
         return df
@@ -211,7 +190,7 @@ def format_and_display(df: pd.DataFrame, numeric_cols: list | None = None,
                     lambda v: f"{float(v):,.2f}" if pd.notna(v) and str(v) != '' else ''
                 )
 
-    st.dataframe(appended.astype(str), width="stretch")
+    st.dataframe(appended, use_container_width=True)
 
 # -----------------------
 # Helper plotting utils
